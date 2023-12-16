@@ -3,13 +3,26 @@ from datetime import datetime, date, timedelta
 
 #Constants
 HISTORY_FILE = "MES_1min_continuous_adjusted.txt"
-POSITION_FILE = "testdata.csv"
+POSITION_FILE = "positions.csv"
 TICK_SIZE = 0.25
-STOP_LOSS = -2
-BREAK_EVEN = 10
-TAKE_PROFIT = 20
-EXIT_PREFER = "15:00:00"
+STOP_LOSS = -12
+BREAK_EVEN = 5
+TAKE_PROFIT = 15
+EXIT_PREFER = "16:00:00"
 EXIT_FINAL = "16:00:00"
+MAX_LOSS = 40
+
+# Addition1: If we do not get 1/3 of Take profit within first hour after opening the position,
+# decrease Take profit to 2/3.
+# If we do not get 2/3 Take profit within second hour after opening the position,
+# decrease Take profit to 1/3.
+# If we do not get 1/3 take profit after third hour, and we are in profit, take profit nevertheless.
+TIME_BASED_TAKE_PROFIT = False
+
+# Addition2: If we have not reached BREAK_EVEN after 30m, and we are in profit, BREAK_EVEN nevertheless
+TIME_BASED_BREAKEVEN = False
+TIME_BASED_BREAKEVEN_DURATION = timedelta(minutes=30)
+
 
 def main():
     candleData = pd.read_csv(HISTORY_FILE)
@@ -44,9 +57,13 @@ def main():
         if session:
             for index, position in positions.iterrows():
                 positionType = Position.POSITION_LONG if position.type == "L" else Position.POSITION_SHORT
+                positionTrend = Position.TREND_TRENDING if "trend" in position and position.trend == "T" else Position.TREND_SIDEWAYS
                 session.addPosition(
                     positionType,
-                    datetime.strptime(f"{position.date} {position.time}", "%Y-%m-%d %H:%M:%S")
+                    datetime.strptime(f"{position.date} {position.time}", "%Y-%m-%d %H:%M:%S"),
+                    positionTrend,
+                    position.sl
+
                 )
         else:
             print(f"Session with date {date} not found.")
@@ -96,21 +113,30 @@ class Position:
     POSITION_OPENED = 1
     POSITION_WAITING = -1
     POSITION_CLOSED = 0
+    TREND_TRENDING = 1
+    TREND_SIDEWAYS = 0
 
-    def __init__(self, positionType, timestamp):
+    def __init__(self, positionType, timestamp, trend, stopLossPrice):
         self.positionType = positionType
         self.timestamp = timestamp
         self.status = Position.POSITION_WAITING
-        self.stopLoss = STOP_LOSS
+        self.trend = trend
+        self.stopLossPrice = stopLossPrice
         self.takeProfit = TAKE_PROFIT
         self.breakEven = BREAK_EVEN
         self.exitPrefer = EXIT_PREFER
         self.exitFinal = EXIT_FINAL
+        self.strategyStages = {
+            "timeBasedTakeProfit": 0,
+            "timeBasedBreakEven": 0
+        }
+
 
     def openPosition(self, entryPrice):
         self.status = Position.POSITION_OPENED
         self.entryPrice = entryPrice
         self.unrealizedPL = 0
+        self.stopLoss = -1 * abs(self.stopLossPrice-entryPrice)
 
     def closePosition(self, pl = None):
         if pl is None:
@@ -118,6 +144,8 @@ class Position:
         self.status = Position.POSITION_CLOSED
         self.realizedPL = pl
         self.unrealizedPL = None
+        print(self.timestamp)
+        print(self.realizedPL)
 
     def handleUnrealizedPL(self, candle):
         if self.status is not Position.POSITION_OPENED:
@@ -145,12 +173,53 @@ class Position:
             self.closePosition(self.takeProfit)
 
 
+# Addition1:
+# 1h passed. Profit < 1/3 TP? TP to 1/3
+# 1h passed. Profit < 2/3 TP? TP to 2/3
+# 2h passed. Have not reached TP of 1/3 and in +? Close position.
+# 2h passed. Have not reached TP of 2/3 and Profit < 1/3?  TP to 1/3
+# 2h passed. Have not reached TP of 2/3,but Profit is > 1/3? SL to 1/3
+# decrease Take profit to 2/3.
+# If we do not get 2/3 Take profit within second hour after opening the position,
+# decrease Take profit to 1/3.
+# If we do not get 1/3 take profit after third hour, and we are in profit, take profit nevertheless.
+        if self.status is Position.POSITION_OPENED and TIME_BASED_TAKE_PROFIT:
+            # Takes too much time
+            if candle.timestamp - self.timestamp >= timedelta(hours=1) and self.strategyStages["timeBasedTakeProfit"] == 0:
+                self.strategyStages["timeBasedTakeProfit"] = 1
+                if self.positionType == Position.POSITION_LONG and self.unrealizedPL + candle.distanceToHigh < (self.takeProfit/3):
+                    self.takeProfit = self.takeProfit/3
+                elif self.positionType == Position.POSITION_SHORT and self.unrealizedPL + candle.distanceToLow < (self.takeProfit/3):
+                    self.takeProfit = self.takeProfit/3     
+                elif self.positionType == Position.POSITION_LONG and self.unrealizedPL + candle.distanceToHigh < (self.takeProfit/3*2):
+                    self.takeProfit = self.takeProfit/3*2
+                elif self.positionType == Position.POSITION_SHORT and self.unrealizedPL + candle.distanceToLow < (self.takeProfit/3):
+                    self.takeProfit = self.takeProfit/3*2
+
+            elif candle.timestamp - self.timestamp >= timedelta(hours=2) and self.strategyStages["timeBasedTakeProfit"] == 1:
+                self.strategyStages["timeBasedTakeProfit"] = 2
+                if self.takeProfit == TAKE_PROFIT/3 and self.unrealizedPL > 0:
+                    self.closePosition()
+                elif self.takeProfit == TAKE_PROFIT/3*2:
+                    if self.positionType == Position.POSITION_LONG and self.unrealizedPL + candle.distanceToHigh < (self.takeProfit/2):
+                        self.takeProfit = self.takeProfit/2
+                    elif self.positionType == Position.POSITION_SHORT and self.unrealizedPL + candle.distanceToLow < (self.takeProfit/2):
+                        self.takeProfit = self.takeProfit/2
+                    else:
+                        self.stopLoss = self.takeProfit/2
+
+
     def handleBreakEven(self, candle):
         if self.status is not Position.POSITION_OPENED:
             return
         if ((self.positionType == Position.POSITION_LONG and self.unrealizedPL + candle.distanceToHigh >= self.breakEven) or
             (self.positionType == Position.POSITION_SHORT and self.unrealizedPL + candle.distanceToLow >= self.breakEven)):
             self.stopLoss = 0
+
+        if self.status is Position.POSITION_OPENED and TIME_BASED_BREAKEVEN:
+            if candle.timestamp - self.timestamp >= TIME_BASED_BREAKEVEN_DURATION and self.unrealizedPL >= 0:
+                self.stopLoss = 0
+
 
     def handleEndOfDay(self, candle):
         if self.status is not Position.POSITION_OPENED:
@@ -172,15 +241,18 @@ class Session:
         self.candles = candles
         self.positions = []
         self.realizedPL = 0
+        self.maxLoss = MAX_LOSS
 
         self.openLow = candles[0].lowPrice
         self.openHigh = candles[2].highPrice
 
-    def addPosition(self, positionType, positionTimestamp):
+    def addPosition(self, positionType, positionTimestamp, trend, positionStopLoss):
         self.positions.append(
             Position(
                 positionType,
-                positionTimestamp
+                positionTimestamp,
+                trend,
+                positionStopLoss
             )
         )
 
@@ -188,6 +260,8 @@ class Session:
         for position in self.positions:
             self.__runBackTestForPosition(position)
             self.realizedPL += position.realizedPL
+            if self.realizedPL <= self.maxLoss:
+                break
     
     def __calculateEntryPrice(self, position, candle):
         entryPercentage = position.timestamp.second / 60
