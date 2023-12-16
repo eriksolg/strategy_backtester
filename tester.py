@@ -11,6 +11,7 @@ TAKE_PROFIT = 15
 EXIT_PREFER = "16:00:00"
 EXIT_FINAL = "16:00:00"
 MAX_LOSS = 40
+MAX_LOSS_PER_TRADE = -12
 
 # Addition1: If we do not get 1/3 of Take profit within first hour after opening the position,
 # decrease Take profit to 2/3.
@@ -22,6 +23,9 @@ TIME_BASED_TAKE_PROFIT = False
 # Addition2: If we have not reached BREAK_EVEN after 30m, and we are in profit, BREAK_EVEN nevertheless
 TIME_BASED_BREAKEVEN = False
 TIME_BASED_BREAKEVEN_DURATION = timedelta(minutes=30)
+
+# If set, stop loss amount is based on losing candle low/high, not declared stop loss.
+STOP_LOSS_BASED_ON_CANDLE = False
 
 
 def main():
@@ -159,9 +163,13 @@ class Position:
         if self.status is not Position.POSITION_OPENED:
             return
         if self.positionType == Position.POSITION_LONG and self.unrealizedPL - candle.distanceToLow <= self.stopLoss:
-            self.closePosition(self.unrealizedPL - candle.distanceToLow)
+            stopLossAmount = self.unrealizedPL - candle.distanceToLow if STOP_LOSS_BASED_ON_CANDLE else self.stopLoss
+            stopLossAmount = stopLossAmount if stopLossAmount >= MAX_LOSS_PER_TRADE else MAX_LOSS_PER_TRADE
+            self.closePosition(stopLossAmount)
         elif self.positionType == Position.POSITION_SHORT and self.unrealizedPL - candle.distanceToHigh <= self.stopLoss:
-            self.closePosition(self.unrealizedPL - candle.distanceToHigh)
+            stopLossAmount = self.unrealizedPL - candle.distanceToHigh if STOP_LOSS_BASED_ON_CANDLE else self.stopLoss
+            stopLossAmount = stopLossAmount if stopLossAmount >= MAX_LOSS_PER_TRADE else MAX_LOSS_PER_TRADE
+            self.closePosition(stopLossAmount)
 
 
     def handleTakeProfit(self, candle):
