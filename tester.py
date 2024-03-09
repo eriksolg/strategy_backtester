@@ -109,7 +109,7 @@ class Position:
         self.timestamp = timestamp
         self.status = Position.POSITION_WAITING
         self.takeProfitPrice = takeProfit
-        self.breakEven = BREAK_EVEN
+        self.breakEven = 2 * atr
         self.exitFinal = EXIT_FINAL
         self.atr = atr
         self.stopLossPrice = stopLoss
@@ -136,7 +136,7 @@ class Position:
         maxPositions = int(Backtest.portFolioSize // marginRequirement)
 
         for positionSize in range(maxPositions, 1, -1):
-            potentialLoss = self.getValueInUSD(-2 * self.atr, positionSize)
+            potentialLoss = self.getValueInUSD(self.stopLoss, positionSize)
             if potentialLoss >= (-1 * Backtest.portFolioSize * MAX_PORTFOLIO_LOSS_PER_TRADE):
                 return positionSize
         return None
