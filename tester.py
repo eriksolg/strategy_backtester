@@ -51,7 +51,10 @@ def main():
                     datetime.strptime(f"{position.date} {position.time}", "%Y-%m-%d %H:%M:%S"),
                     position.atr,
                     position.tp if "tp" in position else "NA",
-                    position.sl
+                    position.sl,
+                    position.type,
+                    position.vwap,
+                    position.mvwap
 
                 )
         else:
@@ -103,7 +106,7 @@ class Position:
     POSITION_WAITING = -1
     POSITION_CLOSED = 0
 
-    def __init__(self, positionType, timestamp, atr, takeProfit, stopLoss):
+    def __init__(self, positionType, timestamp, atr, takeProfit, stopLoss, type, vwap, monthVwap):
         self.positionType = positionType
         self.timestamp = timestamp
         self.status = Position.POSITION_WAITING
@@ -112,6 +115,9 @@ class Position:
         self.exitFinal = EXIT_FINAL
         self.atr = atr
         self.stopLossPrice = stopLoss
+        self.type = type
+        self.vwap = vwap
+        self.monthVwap = monthVwap
 
     def openPosition(self, entryPrice):
         self.status = Position.POSITION_OPENED
@@ -201,16 +207,26 @@ class Session:
         self.realizedPL = 0
         self.exceedMonthlyPL = False
 
-    def addPosition(self, positionType, positionTimestamp, atr, takeProfit, stopLoss):
-        self.positions.append(
-            Position(
+    def addPosition(self, positionType, positionTimestamp, atr, takeProfit, stopLoss, type, vwap, monthVwap):
+        newPosition = Position(
                 positionType,
                 positionTimestamp,
                 atr,
                 takeProfit,
-                stopLoss
-            )
+                stopLoss,
+                type,
+                vwap,
+                monthVwap
         )
+
+        if self.positionFilter(newPosition):
+            self.positions.append(newPosition)
+
+    def positionFilter(self, position):
+        # First position of the day
+        if len(self.positions) == 0:
+            return True
+        return False
 
     def runBackTest(self):
         for position in self.positions:
