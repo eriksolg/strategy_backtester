@@ -223,10 +223,15 @@ class Session:
             self.positions.append(newPosition)
 
     def positionFilter(self, position):
+        # if (position.positionType == Position.POSITION_LONG and position.vwap < position.monthVwap) or \
+        #     (position.positionType == Position.POSITION_SHORT and position.vwap > position.monthVwap):
+        #     return False
+        # if (position.timestamp.time() < (datetime.strptime("10:00:00", '%H:%M:%S').time())):
+        #     return False
         # First position of the day
-        if len(self.positions) == 0:
-            return True
-        return False
+        if len(self.positions) > 0:
+            return False
+        return True
 
     def runBackTest(self):
         for position in self.positions:
