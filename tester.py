@@ -52,7 +52,7 @@ def main():
                     position.atr,
                     position.tp if "tp" in position else "NA",
                     position.sl,
-                    position.type,
+                    position.strategy,
                     position.vwap,
                     position.mvwap
 
@@ -106,7 +106,7 @@ class Position:
     POSITION_WAITING = -1
     POSITION_CLOSED = 0
 
-    def __init__(self, positionType, timestamp, atr, takeProfit, stopLoss, type, vwap, monthVwap):
+    def __init__(self, positionType, timestamp, atr, takeProfit, stopLoss, strategy, vwap, monthVwap):
         self.positionType = positionType
         self.timestamp = timestamp
         self.status = Position.POSITION_WAITING
@@ -115,7 +115,7 @@ class Position:
         self.exitFinal = EXIT_FINAL
         self.atr = atr
         self.stopLossPrice = stopLoss
-        self.type = type
+        self.strategy = strategy
         self.vwap = vwap
         self.monthVwap = monthVwap
 
@@ -154,12 +154,10 @@ class Position:
         self.unrealizedPL = None
 
     def handleUnrealizedPL(self, candle):
-        if self.status is not Position.POSITION_OPENED:
-            return
         if self.positionType == Position.POSITION_LONG:
-            self.unrealizedPL = candle.close - self.entryPrice
+            self.unrealizedPL = candle.open - self.entryPrice
         else:
-            self.unrealizedPL = self.entryPrice - candle.close
+            self.unrealizedPL = self.entryPrice - candle.open
 
     def getValueInUSD(self, valueInPoints, positionSize):
         return (valueInPoints / TICK_SIZE) * VALUE_OF_TICK * positionSize
@@ -167,6 +165,9 @@ class Position:
     def handleStopLoss(self, candle):
         if self.status is not Position.POSITION_OPENED:
             return
+        print(self.unrealizedPL)
+        print(candle.distanceToHigh)
+        print(self.stopLoss)
         if (self.positionType == Position.POSITION_LONG and self.unrealizedPL - candle.distanceToLow <= self.stopLoss) or \
             (self.positionType == Position.POSITION_SHORT and self.unrealizedPL - candle.distanceToHigh <= self.stopLoss):
             self.closePosition(self.stopLoss)
@@ -207,14 +208,14 @@ class Session:
         self.realizedPL = 0
         self.exceedMonthlyPL = False
 
-    def addPosition(self, positionType, positionTimestamp, atr, takeProfit, stopLoss, type, vwap, monthVwap):
+    def addPosition(self, positionType, positionTimestamp, atr, takeProfit, stopLoss, strategy, vwap, monthVwap):
         newPosition = Position(
                 positionType,
                 positionTimestamp,
                 atr,
                 takeProfit,
                 stopLoss,
-                type,
+                strategy,
                 vwap,
                 monthVwap
         )
@@ -223,6 +224,8 @@ class Session:
             self.positions.append(newPosition)
 
     def positionFilter(self, position):
+        if position.strategy == "retw":
+            return False
         # if (position.positionType == Position.POSITION_LONG and position.vwap < position.monthVwap) or \
         #     (position.positionType == Position.POSITION_SHORT and position.vwap > position.monthVwap):
         #     return False
@@ -239,32 +242,19 @@ class Session:
             self.realizedPL += position.realizedPL if position.status == Position.POSITION_CLOSED else 0
             if position.status == Position.POSITION_WAITING:
                 print("Position did not execute: ", position)
-    
-    def __calculateEntryPrice(self, position, candle):
-        entryPercentage = position.timestamp.second / 60
-        if candle.direction == Candle.DIRECTION_BULL:
-            entryPriceCalculated = candle.lowPrice + candle.delta * entryPercentage
-        elif candle.direction == Candle.DIRECTION_BEAR:
-            entryPriceCalculated = candle.highPrice - candle.delta * entryPercentage
-        else:
-            entryPriceCalculated = candle.open
-    
-        return round(entryPriceCalculated / TICK_SIZE) * TICK_SIZE
-
 
     def __runBackTestForPosition(self, position):
         for candle in self.candles:
             if position.status == Position.POSITION_WAITING:
                 if position.timestamp >= candle.timestamp and position.timestamp < candle.timestamp + timedelta(minutes=1):
-                    entryPrice = self.__calculateEntryPrice(position, candle)
-                    position.openPosition(entryPrice)                
+                    position.openPosition(candle.open)
 
             if position.status == Position.POSITION_OPENED:
+                position.handleUnrealizedPL(candle)
                 position.handleStopLoss(candle)
                 position.handleTakeProfit(candle)
                 position.handleBreakEven(candle)
                 position.handleEndOfDay(candle)
-                position.handleUnrealizedPL(candle)
 
     def __str__(self):
         return str(f"Session: {self.date}")
