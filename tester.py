@@ -10,8 +10,15 @@ TICK_SIZE = 0.25
 VALUE_OF_TICK = 1.25
 ENTRY_PORTFOLIO = 8000
 MAINTENANCE_MARGIN = 0.25
-MAX_PORTFOLIO_LOSS_PER_TRADE = 0.02
+MAX_PORTFOLIO_LOSS_PER_TRADE = 0.5
 EXIT_FINAL = "16:00:00"
+BREAK_EVEN_ATR = {
+    "pivot": 10,
+    "rsi": 2,
+    "ret": 2,
+    "retw": 2,
+    "brk": 2
+}
 
 def main():
     candleData = pd.read_csv(HISTORY_FILE)
@@ -105,17 +112,18 @@ class Position:
     POSITION_OPENED = 1
     POSITION_WAITING = -1
     POSITION_CLOSED = 0
+    POSITION_DISCARDED = 2
 
     def __init__(self, positionType, timestamp, atr, takeProfit, stopLoss, strategy, vwap, monthVwap):
         self.positionType = positionType
         self.timestamp = timestamp
         self.status = Position.POSITION_WAITING
         self.takeProfitPrice = takeProfit
-        self.breakEven = 2 * atr
         self.exitFinal = EXIT_FINAL
         self.atr = atr
         self.stopLossPrice = stopLoss
         self.strategy = strategy
+        self.breakEven = BREAK_EVEN_ATR[self.strategy] * self.atr
         self.vwap = vwap
         self.monthVwap = monthVwap
 
@@ -134,7 +142,7 @@ class Position:
         else:
             print(f"Cannot open position for ${self}. Not enough margin to cover stop loss.")
             self.positionSize = 0
-            self.closePosition()
+            self.closePosition(status = Position.POSITION_DISCARDED)
 
     def calculateInitialPositionSize(self):
         marginRequirement = self.entryPrice * MAINTENANCE_MARGIN
@@ -146,10 +154,10 @@ class Position:
                 return positionSize
         return None
 
-    def closePosition(self, pl = None):
+    def closePosition(self, pl = None, status = POSITION_CLOSED):
         if pl is None:
             pl = self.unrealizedPL
-        self.status = Position.POSITION_CLOSED
+        self.status = status
         self.realizedPL = self.getValueInUSD(pl, self.positionSize)
         self.unrealizedPL = None
 
@@ -165,9 +173,6 @@ class Position:
     def handleStopLoss(self, candle):
         if self.status is not Position.POSITION_OPENED:
             return
-        print(self.unrealizedPL)
-        print(candle.distanceToHigh)
-        print(self.stopLoss)
         if (self.positionType == Position.POSITION_LONG and self.unrealizedPL - candle.distanceToLow <= self.stopLoss) or \
             (self.positionType == Position.POSITION_SHORT and self.unrealizedPL - candle.distanceToHigh <= self.stopLoss):
             self.closePosition(self.stopLoss)
@@ -220,24 +225,26 @@ class Session:
                 monthVwap
         )
 
-        if self.positionFilter(newPosition):
-            self.positions.append(newPosition)
+        self.positions.append(newPosition)
 
     def positionFilter(self, position):
-        if position.strategy == "retw":
-            return False
+        # if position.strategy == "retw":
+        #     return False
         # if (position.positionType == Position.POSITION_LONG and position.vwap < position.monthVwap) or \
         #     (position.positionType == Position.POSITION_SHORT and position.vwap > position.monthVwap):
         #     return False
         # if (position.timestamp.time() < (datetime.strptime("10:00:00", '%H:%M:%S').time())):
         #     return False
         # First position of the day
-        if len(self.positions) > 0:
+        if len([pos for pos in self.positions if pos.status is Position.POSITION_CLOSED]) > 0:
             return False
         return True
 
     def runBackTest(self):
         for position in self.positions:
+            if not self.positionFilter(position):
+                continue
+
             self.__runBackTestForPosition(position)
             self.realizedPL += position.realizedPL if position.status == Position.POSITION_CLOSED else 0
             if position.status == Position.POSITION_WAITING:
@@ -304,8 +311,8 @@ class Backtest:
         return session_PL
 
     def calculateWinRatio():
-        no_sessions = len([session for session in Backtest.sessions if session.realizedPL != 0])
-        win_sessions = len([session for session in Backtest.sessions if session.realizedPL > 0])
+        no_sessions = len([session for session in Backtest.sessions if len(session.positions) != 0])
+        win_sessions = len([session for session in Backtest.sessions if session.realizedPL >= 0 and len(session.positions) != 0])
         return win_sessions/no_sessions
     
     def calculateAverageReturn():
