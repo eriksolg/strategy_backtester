@@ -13,7 +13,7 @@ MAINTENANCE_MARGIN = 0.25
 MAX_PORTFOLIO_LOSS_PER_TRADE = 0.5
 EXIT_FINAL = "16:00:00"
 BREAK_EVEN_ATR = {
-    "pivot": 10,
+    "pivot": 6,
     "rsi": 2,
     "ret": 2,
     "retw": 2,
@@ -228,12 +228,12 @@ class Session:
         self.positions.append(newPosition)
 
     def positionFilter(self, position):
-        # if position.strategy == "retw":
+        # if position.strategy == "ret":
         #     return False
         # if (position.positionType == Position.POSITION_LONG and position.vwap < position.monthVwap) or \
         #     (position.positionType == Position.POSITION_SHORT and position.vwap > position.monthVwap):
         #     return False
-        # if (position.timestamp.time() < (datetime.strptime("10:00:00", '%H:%M:%S').time())):
+        # if (position.timestamp.time() > (datetime.strptime("14:30:00", '%H:%M:%S').time())):
         #     return False
         # First position of the day
         if len([pos for pos in self.positions if pos.status is Position.POSITION_CLOSED]) > 0:
@@ -318,6 +318,8 @@ class Backtest:
     def calculateAverageReturn():
         return sum(monthlyReturn for month, monthlyReturn in Backtest.monthlyReturn.items()) / len(Backtest.monthlyReturn)
 
+    def calculateAverageNoSessionsPerMonth():
+        return len([session for session in Backtest.sessions if len(session.positions) != 0]) / len(Backtest.monthlyReturn)
 
     def printResults():
         print("Monthly PL: ", json.dumps(Backtest.monthly_PL))
@@ -327,6 +329,7 @@ class Backtest:
         print("Final Portfolio: ", Backtest.portFolioSize)
         print("Win ratio: ", Backtest.calculateWinRatio())
         print("Average monthly return: ", Backtest.calculateAverageReturn())
+        print("Average no sessions per month: ", Backtest.calculateAverageNoSessionsPerMonth())
 
     def writeResultsToCSV(self, filename):
         results = pd.DataFrame({
