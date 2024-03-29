@@ -176,19 +176,8 @@ class Session:
         self.realized_pl = 0
         self.exceed_monthly_pl = False
 
-    def add_position(self, position_type, position_timestamp, atr, take_profit, stop_loss, strategy, vwap, month_vwap):
-        self.positions.append(
-            Position(
-                position_type,
-                position_timestamp,
-                atr,
-                take_profit,
-                stop_loss,
-                strategy,
-                vwap,
-                month_vwap
-            )
-        )
+    def add_position(self, position):
+        self.positions.append(position)
 
     def position_filter(self, position):
         # if (position.position_type == Position.POSITION_LONG and position.vwap < position.month_vwap) or \
@@ -339,14 +328,16 @@ def main():
             for _, position in positions.iterrows():
                 position_type = Position.POSITION_LONG if position.type == "L" else Position.POSITION_SHORT
                 session.add_position(
-                    position_type,
-                    datetime.strptime(f"{position.date} {position.time}", "%Y-%m-%d %H:%M:%S"),
-                    position.atr,
-                    position.tp if "tp" in position else "NA",
-                    position.sl,
-                    position.strategy,
-                    position.vwap,
-                    position.mvwap
+                    Position(
+                        position_type,
+                        datetime.strptime(f"{position.date} {position.time}", "%Y-%m-%d %H:%M:%S"),
+                        position.atr,
+                        position.tp if "tp" in position else "NA",
+                        position.sl,
+                        position.strategy,
+                        position.vwap,
+                        position.mvwap
+                    )
                 )
         else:
             print(f"Session with date {date} not found.")
