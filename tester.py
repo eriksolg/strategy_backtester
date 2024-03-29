@@ -10,10 +10,12 @@ TICK_SIZE = 0.25
 VALUE_OF_TICK = 1.25
 ENTRY_PORTFOLIO = 8000
 MAINTENANCE_MARGIN = 0.25
-MAX_PORTFOLIO_LOSS_PER_TRADE = 0.5
+MAX_PORTFOLIO_LOSS_PER_TRADE = 0.06
 EXIT_FINAL = "16:00:00"
+RSI_TP_3ATR = False
+NO_TRADE_AFTER_1430 = False
 BREAK_EVEN_ATR = {
-    "pivot": 6,
+    "pivot": 5,
     "rsi": 2,
     "ret": 2,
     "retw": 2,
@@ -132,6 +134,8 @@ class Position:
         self.entryPrice = entryPrice
         self.unrealizedPL = 0
         self.takeProfit = abs(self.entryPrice - self.takeProfitPrice)
+        if RSI_TP_3ATR and self.strategy == "rsi":
+            self.takeProfit = 3 * self.atr
         if math.isnan(self.stopLossPrice):
             self.stopLoss = -2 * self.atr
         else:
@@ -228,13 +232,11 @@ class Session:
         self.positions.append(newPosition)
 
     def positionFilter(self, position):
-        # if position.strategy == "ret":
-        #     return False
         # if (position.positionType == Position.POSITION_LONG and position.vwap < position.monthVwap) or \
         #     (position.positionType == Position.POSITION_SHORT and position.vwap > position.monthVwap):
         #     return False
-        # if (position.timestamp.time() > (datetime.strptime("14:30:00", '%H:%M:%S').time())):
-        #     return False
+        if NO_TRADE_AFTER_1430 and (position.timestamp.time() > (datetime.strptime("14:30:00", '%H:%M:%S').time())):
+            return False
         # First position of the day
         if len([pos for pos in self.positions if pos.status is Position.POSITION_CLOSED]) > 0:
             return False
