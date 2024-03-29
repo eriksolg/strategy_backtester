@@ -2,6 +2,8 @@ import pandas as pd
 from datetime import datetime, timedelta
 import json
 import math
+import os
+import pickle
 
 #Constants
 HISTORY_FILE = "MES_1min_continuous_adjusted.txt"
@@ -24,31 +26,37 @@ BREAK_EVEN_ATR = {
 
 def main():
     candleData = pd.read_csv(HISTORY_FILE)
+
     candleDataGroupedByDate = candleData.groupby(candleData.columns[0])
 
     positionData = pd.read_csv(POSITION_FILE)
     positionDataGroupedByDate = positionData.groupby(positionData.columns[0])
 
-    for date, candles in candleDataGroupedByDate:
-        candleList = []
-        for _, candle in candles.iterrows():
-            candleList.append(
-                Candle(
-                    datetime.strptime(f"{candle.date} {candle.time}", "%Y-%m-%d %H:%M:%S"),
-                    candle.open,
-                    candle.close,
-                    candle.low,
-                    candle.high,
-                    candle.volume
+    Backtest.load_sessions_from_cache()
+    if len(Backtest.sessions) == 0:
+
+        for date, candles in candleDataGroupedByDate:
+            candleList = []
+            for _, candle in candles.iterrows():
+                candleList.append(
+                    Candle(
+                        datetime.strptime(f"{candle.date} {candle.time}", "%Y-%m-%d %H:%M:%S"),
+                        candle.open,
+                        candle.close,
+                        candle.low,
+                        candle.high,
+                        candle.volume
+                    )
+                )
+
+            Backtest.addSession(
+                Session(
+                    datetime.strptime(candle.date, "%Y-%m-%d").date(),
+                    candleList
                 )
             )
+        Backtest.save_sessions_to_cache()
 
-        Backtest.addSession(
-            Session(
-                datetime.strptime(candle.date, "%Y-%m-%d").date(),
-                candleList
-            )
-        )
     
     for date, positions in positionDataGroupedByDate:
         session = Backtest.findSession(datetime.strptime(date, "%Y-%m-%d").date())
@@ -89,7 +97,7 @@ class Candle:
         self.delta = self.__calculate_delta()
         self.distanceToHigh = abs(self.open - self.highPrice)
         self.distanceToLow = abs(self.open - self.lowPrice)
-        
+
 
     def __calculate_direction(self):
        if self.close > self.open:
@@ -278,6 +286,18 @@ class Backtest:
     results = []
     monthly_PL = {}
     monthlyReturn = {}
+    CACHE_FILE = 'backtest_sessions_cache.pkl'
+
+    @classmethod
+    def load_sessions_from_cache(cls):
+        if os.path.exists(cls.CACHE_FILE):
+            with open(cls.CACHE_FILE, 'rb') as f:
+                cls.sessions = pickle.load(f)
+
+    @classmethod
+    def save_sessions_to_cache(cls):
+        with open(cls.CACHE_FILE, 'wb') as f:
+            pickle.dump(cls.sessions, f)
 
     def addSession(session):
         Backtest.sessions.append(session)
