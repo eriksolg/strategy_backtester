@@ -1,13 +1,14 @@
-import pandas as pd
-from datetime import datetime, timedelta
 import json
 import math
 import os
 import pickle
+from datetime import datetime, timedelta
+import pandas as pd
 
 #Constants
 HISTORY_FILE = "MES_1min_continuous_adjusted.txt"
 POSITION_FILE = "positions.csv"
+CACHE_FILE = 'backtest_sessions_cache.pkl'
 TICK_SIZE = 0.25
 VALUE_OF_TICK = 1.25
 ENTRY_PORTFOLIO = 8000
@@ -18,103 +19,46 @@ RSI_TP_3ATR = False
 NO_TRADE_AFTER_1430 = False
 BREAK_EVEN_ATR = {
     "pivot": 5,
-    "rsi": 2,
+    "rsi": 1,
     "ret": 2,
     "retw": 2,
-    "brk": 2
+    "brk": 1
 }
 
-def main():
-    candleData = pd.read_csv(HISTORY_FILE)
-
-    candleDataGroupedByDate = candleData.groupby(candleData.columns[0])
-
-    positionData = pd.read_csv(POSITION_FILE)
-    positionDataGroupedByDate = positionData.groupby(positionData.columns[0])
-
-    Backtest.load_sessions_from_cache()
-    if len(Backtest.sessions) == 0:
-
-        for date, candles in candleDataGroupedByDate:
-            candleList = []
-            for _, candle in candles.iterrows():
-                candleList.append(
-                    Candle(
-                        datetime.strptime(f"{candle.date} {candle.time}", "%Y-%m-%d %H:%M:%S"),
-                        candle.open,
-                        candle.close,
-                        candle.low,
-                        candle.high,
-                        candle.volume
-                    )
-                )
-
-            Backtest.addSession(
-                Session(
-                    datetime.strptime(candle.date, "%Y-%m-%d").date(),
-                    candleList
-                )
-            )
-        Backtest.save_sessions_to_cache()
-
-    
-    for date, positions in positionDataGroupedByDate:
-        session = Backtest.findSession(datetime.strptime(date, "%Y-%m-%d").date())
-        if session:
-            for _, position in positions.iterrows():
-                positionType = Position.POSITION_LONG if position.type == "L" else Position.POSITION_SHORT
-                session.addPosition(
-                    positionType,
-                    datetime.strptime(f"{position.date} {position.time}", "%Y-%m-%d %H:%M:%S"),
-                    position.atr,
-                    position.tp if "tp" in position else "NA",
-                    position.sl,
-                    position.strategy,
-                    position.vwap,
-                    position.mvwap
-
-                )
-        else:
-            print(f"Session with date {date} not found.")
-
-
-    Backtest.run()
-    Backtest.printResults()
 
 class Candle:
     DIRECTION_BULL = 1
     DIRECTION_BEAR = -1
     DIRECTION_NEUTRAL = 0
 
-    def __init__(self, timestamp, openPrice, closePrice, lowPrice, highPrice, volume):
+    def __init__(self, timestamp, open_price, close_price, low_price, high_price, volume):
         self.timestamp = timestamp
-        self.open = openPrice
-        self.close = closePrice
-        self.lowPrice = lowPrice
-        self.highPrice = highPrice
+        self.open = open_price
+        self.close = close_price
+        self.low_price = low_price
+        self.high_price = high_price
         self.volume = volume
         self.direction = self.__calculate_direction()
         self.delta = self.__calculate_delta()
-        self.distanceToHigh = abs(self.open - self.highPrice)
-        self.distanceToLow = abs(self.open - self.lowPrice)
-
+        self.distance_to_high = abs(self.open - self.high_price)
+        self.distance_to_low = abs(self.open - self.low_price)
 
     def __calculate_direction(self):
-       if self.close > self.open:
-           return self.DIRECTION_BULL
-       elif self.close < self.open:
-           return self.DIRECTION_BEAR
-       else:
-           return self.DIRECTION_NEUTRAL
+        if self.close > self.open:
+            return self.DIRECTION_BULL
+        if self.close < self.open:
+            return self.DIRECTION_BEAR
+        return self.DIRECTION_NEUTRAL
 
     def __calculate_delta(self):
-        return abs(self.lowPrice - self.highPrice)
+        return abs(self.low_price - self.high_price)
 
     def __str__(self):
         return str(self.timestamp)
 
     def __repr__(self):
         return self.__str__()
+
 
 class Position:
     POSITION_LONG = 1
@@ -124,92 +68,98 @@ class Position:
     POSITION_CLOSED = 0
     POSITION_DISCARDED = 2
 
-    def __init__(self, positionType, timestamp, atr, takeProfit, stopLoss, strategy, vwap, monthVwap):
-        self.positionType = positionType
+    def __init__(self, position_type, timestamp, atr, take_profit, stop_loss, strategy, vwap, month_vwap):
+        self.position_type = position_type
         self.timestamp = timestamp
         self.status = Position.POSITION_WAITING
-        self.takeProfitPrice = takeProfit
-        self.exitFinal = EXIT_FINAL
+        self.take_profit_price = take_profit
+        self.exit_final = EXIT_FINAL
         self.atr = atr
-        self.stopLossPrice = stopLoss
+        self.stop_loss_price = stop_loss
         self.strategy = strategy
-        self.breakEven = BREAK_EVEN_ATR[self.strategy] * self.atr
+        self.break_even = BREAK_EVEN_ATR[self.strategy] * self.atr
         self.vwap = vwap
-        self.monthVwap = monthVwap
+        self.month_vwap = month_vwap
 
-    def openPosition(self, entryPrice):
+        self.entry_price = None
+        self.realized_pl = None
+        self.unrealized_pl = None
+        self.take_profit = None
+        self.stop_loss = None
+        self.position_size = None
+
+    def open_position(self, entry_price, portfolio_size):
         self.status = Position.POSITION_OPENED
-        self.entryPrice = entryPrice
-        self.unrealizedPL = 0
-        self.takeProfit = abs(self.entryPrice - self.takeProfitPrice)
+        self.entry_price = entry_price
+        self.unrealized_pl = 0
+        self.take_profit = abs(self.entry_price - self.take_profit_price)
         if RSI_TP_3ATR and self.strategy == "rsi":
-            self.takeProfit = 3 * self.atr
-        if math.isnan(self.stopLossPrice):
-            self.stopLoss = -2 * self.atr
+            self.take_profit = 3 * self.atr
+        if math.isnan(self.stop_loss_price):
+            self.stop_loss = -2 * self.atr
         else:
-            self.stopLoss = -1 * abs(self.stopLossPrice-entryPrice)
-        positionSize = self.calculateInitialPositionSize()
-        if positionSize != None:
-            self.positionSize = positionSize
+            self.stop_loss = -1 * abs(self.stop_loss_price-entry_price)
+        position_size = self.calculate_initial_position_size(portfolio_size)
+        if position_size is not None:
+            self.position_size = position_size
         else:
             print(f"Cannot open position for ${self}. Not enough margin to cover stop loss.")
-            self.positionSize = 0
-            self.closePosition(status = Position.POSITION_DISCARDED)
+            self.position_size = 0
+            self.close_position(status = Position.POSITION_DISCARDED)
 
-    def calculateInitialPositionSize(self):
-        marginRequirement = self.entryPrice * MAINTENANCE_MARGIN
-        maxPositions = int(Backtest.portFolioSize // marginRequirement)
+    def calculate_initial_position_size(self, portfolio_size):
+        margin_requirement = self.entry_price * MAINTENANCE_MARGIN
+        max_positions = int(portfolio_size // margin_requirement)
 
-        for positionSize in range(maxPositions, 1, -1):
-            potentialLoss = self.getValueInUSD(self.stopLoss, positionSize)
-            if potentialLoss >= (-1 * Backtest.portFolioSize * MAX_PORTFOLIO_LOSS_PER_TRADE):
-                return positionSize
+        for position_size in range(max_positions, 1, -1):
+            potential_loss = self.get_value_in_usd(self.stop_loss, position_size)
+            if potential_loss >= (-1 * portfolio_size * MAX_PORTFOLIO_LOSS_PER_TRADE):
+                return position_size
         return None
 
-    def closePosition(self, pl = None, status = POSITION_CLOSED):
+    def close_position(self, pl = None, status = POSITION_CLOSED):
         if pl is None:
-            pl = self.unrealizedPL
+            pl = self.unrealized_pl
         self.status = status
-        self.realizedPL = self.getValueInUSD(pl, self.positionSize)
-        self.unrealizedPL = None
+        self.realized_pl = self.get_value_in_usd(pl, self.position_size)
+        self.unrealized_pl = None
 
-    def handleUnrealizedPL(self, candle):
-        if self.positionType == Position.POSITION_LONG:
-            self.unrealizedPL = candle.open - self.entryPrice
+    def handle_unrealized_pl(self, candle):
+        if self.position_type == Position.POSITION_LONG:
+            self.unrealized_pl = candle.open - self.entry_price
         else:
-            self.unrealizedPL = self.entryPrice - candle.open
+            self.unrealized_pl = self.entry_price - candle.open
 
-    def getValueInUSD(self, valueInPoints, positionSize):
-        return (valueInPoints / TICK_SIZE) * VALUE_OF_TICK * positionSize
+    def get_value_in_usd(self, valueInPoints, position_size):
+        return (valueInPoints / TICK_SIZE) * VALUE_OF_TICK * position_size
 
-    def handleStopLoss(self, candle):
+    def handle_stop_loss(self, candle):
         if self.status is not Position.POSITION_OPENED:
             return
-        if (self.positionType == Position.POSITION_LONG and self.unrealizedPL - candle.distanceToLow <= self.stopLoss) or \
-            (self.positionType == Position.POSITION_SHORT and self.unrealizedPL - candle.distanceToHigh <= self.stopLoss):
-            self.closePosition(self.stopLoss)
+        if (self.position_type == Position.POSITION_LONG and self.unrealized_pl - candle.distance_to_low <= self.stop_loss) or \
+            (self.position_type == Position.POSITION_SHORT and self.unrealized_pl - candle.distance_to_high <= self.stop_loss):
+            self.close_position(self.stop_loss)
 
-
-    def handleTakeProfit(self, candle):
+    def handle_take_profit(self, candle):
         if self.status is not Position.POSITION_OPENED:
             return
-        if self.positionType == Position.POSITION_LONG and self.unrealizedPL + candle.distanceToHigh >= self.takeProfit:
-            self.closePosition(self.takeProfit)
-        elif self.positionType == Position.POSITION_SHORT and self.unrealizedPL + candle.distanceToLow >= self.takeProfit:
-            self.closePosition(self.takeProfit)
+        if self.position_type == Position.POSITION_LONG and self.unrealized_pl + candle.distance_to_high >= self.take_profit:
+            self.close_position(self.take_profit)
+        elif self.position_type == Position.POSITION_SHORT and self.unrealized_pl + candle.distance_to_low >= self.take_profit:
+            self.close_position(self.take_profit)
 
-    def handleBreakEven(self, candle):
+    def handle_break_even(self, candle):
         if self.status is not Position.POSITION_OPENED:
             return
-        if ((self.positionType == Position.POSITION_LONG and self.unrealizedPL + candle.distanceToHigh >= self.breakEven) or
-            (self.positionType == Position.POSITION_SHORT and self.unrealizedPL + candle.distanceToLow >= self.breakEven)) and self.stopLoss<0:
-            self.stopLoss = 0
+        if ((self.position_type == Position.POSITION_LONG and self.unrealized_pl + candle.distance_to_high >= self.break_even) or
+            (self.position_type == Position.POSITION_SHORT and self.unrealized_pl + candle.distance_to_low >= self.break_even)) and self.stop_loss<0:
+            self.stop_loss = 0
 
-    def handleEndOfDay(self, candle):
+    def handle_end_of_day(self, candle):
         if self.status is not Position.POSITION_OPENED:
             return
-        if (candle.timestamp.time() >= (datetime.strptime(self.exitFinal, '%H:%M:%S').time())):
-            self.closePosition()
+        if (candle.timestamp.time() >= (datetime.strptime(self.exit_final, '%H:%M:%S').time())):
+            self.close_position()
 
     def __str__(self):
         return str(f"Position({self.timestamp})")
@@ -217,31 +167,32 @@ class Position:
     def __repr__(self):
         return self.__str__()
 
+
 class Session:
     def __init__(self, date, candles):
         self.date = date
         self.candles = candles
         self.positions = []
-        self.realizedPL = 0
-        self.exceedMonthlyPL = False
+        self.realized_pl = 0
+        self.exceed_monthly_pl = False
 
-    def addPosition(self, positionType, positionTimestamp, atr, takeProfit, stopLoss, strategy, vwap, monthVwap):
-        newPosition = Position(
-                positionType,
-                positionTimestamp,
+    def add_position(self, position_type, position_timestamp, atr, take_profit, stop_loss, strategy, vwap, month_vwap):
+        self.positions.append(
+            Position(
+                position_type,
+                position_timestamp,
                 atr,
-                takeProfit,
-                stopLoss,
+                take_profit,
+                stop_loss,
                 strategy,
                 vwap,
-                monthVwap
+                month_vwap
+            )
         )
 
-        self.positions.append(newPosition)
-
-    def positionFilter(self, position):
-        # if (position.positionType == Position.POSITION_LONG and position.vwap < position.monthVwap) or \
-        #     (position.positionType == Position.POSITION_SHORT and position.vwap > position.monthVwap):
+    def position_filter(self, position):
+        # if (position.position_type == Position.POSITION_LONG and position.vwap < position.month_vwap) or \
+        #     (position.position_type == Position.POSITION_SHORT and position.vwap > position.month_vwap):
         #     return False
         if NO_TRADE_AFTER_1430 and (position.timestamp.time() > (datetime.strptime("14:30:00", '%H:%M:%S').time())):
             return False
@@ -250,28 +201,28 @@ class Session:
             return False
         return True
 
-    def runBackTest(self):
+    def run_backtest(self, portfolio_size):
         for position in self.positions:
-            if not self.positionFilter(position):
+            if not self.position_filter(position):
                 continue
 
-            self.__runBackTestForPosition(position)
-            self.realizedPL += position.realizedPL if position.status == Position.POSITION_CLOSED else 0
+            self.__run_backtest_for_position(position, portfolio_size)
+            self.realized_pl += position.realized_pl if position.status == Position.POSITION_CLOSED else 0
             if position.status == Position.POSITION_WAITING:
                 print("Position did not execute: ", position)
 
-    def __runBackTestForPosition(self, position):
+    def __run_backtest_for_position(self, position, portfolio_size):
         for candle in self.candles:
             if position.status == Position.POSITION_WAITING:
                 if position.timestamp >= candle.timestamp and position.timestamp < candle.timestamp + timedelta(minutes=1):
-                    position.openPosition(candle.open)
+                    position.open_position(candle.open, portfolio_size)
 
             if position.status == Position.POSITION_OPENED:
-                position.handleUnrealizedPL(candle)
-                position.handleStopLoss(candle)
-                position.handleTakeProfit(candle)
-                position.handleBreakEven(candle)
-                position.handleEndOfDay(candle)
+                position.handle_unrealized_pl(candle)
+                position.handle_stop_loss(candle)
+                position.handle_take_profit(candle)
+                position.handle_break_even(candle)
+                position.handle_end_of_day(candle)
 
     def __str__(self):
         return str(f"Session: {self.date}")
@@ -281,84 +232,128 @@ class Session:
 
 
 class Backtest:
-    portFolioSize = ENTRY_PORTFOLIO
-    sessions = []
-    results = []
-    monthly_PL = {}
-    monthlyReturn = {}
-    CACHE_FILE = 'backtest_sessions_cache.pkl'
+    def __init__(self):
+        self.sessions = []
+        self.portfolio_size = ENTRY_PORTFOLIO
+        self.results = []
+        self.monthly_pl = {}
+        self.monthly_return = {}
+        
+        if os.path.exists(CACHE_FILE):
+            with open(CACHE_FILE, 'rb') as f:
+                self.sessions = pickle.load(f)
 
-    @classmethod
-    def load_sessions_from_cache(cls):
-        if os.path.exists(cls.CACHE_FILE):
-            with open(cls.CACHE_FILE, 'rb') as f:
-                cls.sessions = pickle.load(f)
+    def has_sessions(self):
+        return len(self.sessions) > 0
 
-    @classmethod
-    def save_sessions_to_cache(cls):
-        with open(cls.CACHE_FILE, 'wb') as f:
-            pickle.dump(cls.sessions, f)
+    def save_sessions_to_cache(self):
+        with open(CACHE_FILE, 'wb') as f:
+            pickle.dump(self.sessions, f)
 
-    def addSession(session):
-        Backtest.sessions.append(session)
+    def add_session(self, session):
+        self.sessions.append(session)
 
-    def findSession(date):
-        for session in Backtest.sessions:
+    def find_session(self, date):
+        for session in self.sessions:
             if session.date == date:
                 return session
         return None
 
-    def run():
-        for session in Backtest.sessions:
+    def run(self):
+        for session in self.sessions:
             if len(session.positions) == 0:
                 continue
-            session.runBackTest()
-            Backtest.portFolioSize += session.realizedPL
+            session.run_backtest(self.portfolio_size)
+            self.portfolio_size += session.realized_pl
 
             month_year = session.date.strftime('%Y-%m')
-            if month_year not in Backtest.monthly_PL:
-                Backtest.monthly_PL[month_year] = 0
-            Backtest.monthly_PL[month_year] += session.realizedPL
+            if month_year not in self.monthly_pl:
+                self.monthly_pl[month_year] = 0
+            self.monthly_pl[month_year] += session.realized_pl
 
-            if month_year not in Backtest.monthlyReturn:
-                Backtest.monthlyReturn[month_year] = 0
-                initialPortfolioForMonth = Backtest.portFolioSize           
-            Backtest.monthlyReturn[month_year] = Backtest.monthly_PL[month_year] / initialPortfolioForMonth
+            if month_year not in self.monthly_return:
+                self.monthly_return[month_year] = 0
+                initial_portfolio_for_month = self.portfolio_size           
+            self.monthly_return[month_year] = self.monthly_pl[month_year] / initial_portfolio_for_month
 
-    def calculateTotalPL():
-        return sum(session.realizedPL for session in Backtest.sessions)
-
-    def calculateSessionPL():
-        session_PL = {session.date.strftime('%Y-%m-%d'): session.realizedPL for session in Backtest.sessions if len(session.positions) > 0}
+    def __calculate_session_pl(self):
+        session_PL = {session.date.strftime('%Y-%m-%d'): session.realized_pl for session in self.sessions if len(session.positions) > 0}
         return session_PL
 
-    def calculateWinRatio():
-        no_sessions = len([session for session in Backtest.sessions if len(session.positions) != 0])
-        win_sessions = len([session for session in Backtest.sessions if session.realizedPL >= 0 and len(session.positions) != 0])
+    def __calculate_win_ratio(self):
+        no_sessions = len([session for session in self.sessions if len(session.positions) != 0])
+        win_sessions = len([session for session in self.sessions if session.realized_pl >= 0 and len(session.positions) != 0])
         return win_sessions/no_sessions
     
-    def calculateAverageReturn():
-        return sum(monthlyReturn for month, monthlyReturn in Backtest.monthlyReturn.items()) / len(Backtest.monthlyReturn)
+    def __calculate_average_return(self):
+        return sum(monthlyReturn for month, monthlyReturn in self.monthly_return.items()) / len(self.monthly_return)
 
-    def calculateAverageNoSessionsPerMonth():
-        return len([session for session in Backtest.sessions if len(session.positions) != 0]) / len(Backtest.monthlyReturn)
+    def __calculate_average_no_sessions_per_month(self):
+        return len([session for session in self.sessions if len(session.positions) != 0]) / len(self.monthly_return)
 
-    def printResults():
-        print("Monthly PL: ", json.dumps(Backtest.monthly_PL))
-        print("Session PL: ", json.dumps(Backtest.calculateSessionPL()))
-        print("Monthly return: ", Backtest.monthlyReturn)
+    def print_results(self):
+        print("Monthly PL: ", json.dumps(self.monthly_pl))
+        print("Session PL: ", json.dumps(self.__calculate_session_pl()))
+        print("Monthly return: ", self.monthly_return)
         print("Initial Portfolio: ", ENTRY_PORTFOLIO)
-        print("Final Portfolio: ", Backtest.portFolioSize)
-        print("Win ratio: ", Backtest.calculateWinRatio())
-        print("Average monthly return: ", Backtest.calculateAverageReturn())
-        print("Average no sessions per month: ", Backtest.calculateAverageNoSessionsPerMonth())
+        print("Final Portfolio: ", self.portfolio_size)
+        print("Win ratio: ", self.__calculate_win_ratio())
+        print("Average monthly return: ", self.__calculate_average_return())
+        print("Average no sessions per month: ", self.__calculate_average_no_sessions_per_month())
 
-    def writeResultsToCSV(self, filename):
-        results = pd.DataFrame({
-            'Month': list(Backtest.calculateMonthlyPL().keys()),
-            'PL': list(Backtest.calculateMonthlyPL().values())
-        })
-        results.to_csv(filename, index=False)
+
+def main():
+    candle_data = pd.read_csv(HISTORY_FILE)
+    candle_data_grouped_by_date = candle_data.groupby(candle_data.columns[0])
+
+    position_data = pd.read_csv(POSITION_FILE)
+    position_data_grouped_by_date = position_data.groupby(position_data.columns[0])
+
+    bt = Backtest()
+
+    if not bt.has_sessions():
+        for date, candles in candle_data_grouped_by_date:
+            candle_list = []
+            for _, candle in candles.iterrows():
+                candle_list.append(
+                    Candle(
+                        datetime.strptime(f"{candle.date} {candle.time}", "%Y-%m-%d %H:%M:%S"),
+                        candle.open,
+                        candle.close,
+                        candle.low,
+                        candle.high,
+                        candle.volume
+                    )
+                )
+            bt.add_session(
+                Session(
+                    datetime.strptime(candle.date, "%Y-%m-%d").date(),
+                    candle_list
+                )
+            )
+        bt.save_sessions_to_cache()
+    
+    for date, positions in position_data_grouped_by_date:
+        session = bt.find_session(datetime.strptime(date, "%Y-%m-%d").date())
+        if session:
+            for _, position in positions.iterrows():
+                position_type = Position.POSITION_LONG if position.type == "L" else Position.POSITION_SHORT
+                session.add_position(
+                    position_type,
+                    datetime.strptime(f"{position.date} {position.time}", "%Y-%m-%d %H:%M:%S"),
+                    position.atr,
+                    position.tp if "tp" in position else "NA",
+                    position.sl,
+                    position.strategy,
+                    position.vwap,
+                    position.mvwap
+                )
+        else:
+            print(f"Session with date {date} not found.")
+
+    bt.run()
+    bt.print_results()
+
 
 if __name__ == "__main__":
     main()
