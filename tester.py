@@ -226,7 +226,9 @@ class Backtest:
         self.portfolio_size = ENTRY_PORTFOLIO
         self.results = []
         self.monthly_pl = {}
+        self.yearly_pl = {}
         self.monthly_return = {}
+        self.yearly_return = {}
         
         if os.path.exists(CACHE_FILE):
             with open(CACHE_FILE, 'rb') as f:
@@ -256,6 +258,7 @@ class Backtest:
             self.portfolio_size += session.realized_pl
 
             month_year = session.date.strftime('%Y-%m')
+            year = session.date.strftime('%Y')
             if month_year not in self.monthly_pl:
                 self.monthly_pl[month_year] = 0
             self.monthly_pl[month_year] += session.realized_pl
@@ -264,6 +267,15 @@ class Backtest:
                 self.monthly_return[month_year] = 0
                 initial_portfolio_for_month = self.portfolio_size           
             self.monthly_return[month_year] = self.monthly_pl[month_year] / initial_portfolio_for_month
+
+            if year not in self.yearly_pl:
+                self.yearly_pl[year] = 0
+            self.yearly_pl[year] += session.realized_pl
+
+            if year not in self.yearly_return:
+                self.yearly_return[year] = 0
+                initial_portfolio_for_year = self.portfolio_size
+            self.yearly_return[year] = self.yearly_pl[year] / initial_portfolio_for_year
 
     def __calculate_session_pl(self):
         session_PL = {session.date.strftime('%Y-%m-%d'): session.realized_pl for session in self.sessions if len(session.positions) > 0}
@@ -284,6 +296,7 @@ class Backtest:
         print("Monthly PL: ", json.dumps(self.monthly_pl))
         print("Session PL: ", json.dumps(self.__calculate_session_pl()))
         print("Monthly return: ", self.monthly_return)
+        print("Yearly return: ", self.yearly_return)
         print("Initial Portfolio: ", ENTRY_PORTFOLIO)
         print("Final Portfolio: ", self.portfolio_size)
         print("Win ratio: ", self.__calculate_win_ratio())
