@@ -15,8 +15,6 @@ ENTRY_PORTFOLIO = 8000
 MAINTENANCE_MARGIN = 0.25
 MAX_PORTFOLIO_LOSS_PER_TRADE = 0.06
 EXIT_FINAL = "16:00:00"
-RSI_TP_3ATR = False
-NO_TRADE_AFTER_1430 = False
 BREAK_EVEN_ATR = {
     "pivot": 5,
     "rsi": 1,
@@ -72,7 +70,7 @@ class Position:
         self.position_type = position_type
         self.timestamp = timestamp
         self.status = Position.POSITION_WAITING
-        self.take_profit_price = take_profit
+        self.take_profit = take_profit
         self.exit_final = EXIT_FINAL
         self.atr = atr
         self.stop_loss_price = stop_loss
@@ -84,7 +82,6 @@ class Position:
         self.entry_price = None
         self.realized_pl = None
         self.unrealized_pl = None
-        self.take_profit = None
         self.stop_loss = None
         self.position_size = None
 
@@ -92,9 +89,6 @@ class Position:
         self.status = Position.POSITION_OPENED
         self.entry_price = entry_price
         self.unrealized_pl = 0
-        self.take_profit = abs(self.entry_price - self.take_profit_price)
-        if RSI_TP_3ATR and self.strategy == "rsi":
-            self.take_profit = 3 * self.atr
         if math.isnan(self.stop_loss_price):
             self.stop_loss = -2 * self.atr
         else:
@@ -143,10 +137,8 @@ class Position:
     def handle_take_profit(self, candle):
         if self.status is not Position.POSITION_OPENED:
             return
-        if self.position_type == Position.POSITION_LONG and self.unrealized_pl + candle.distance_to_high >= self.take_profit:
-            self.close_position(self.take_profit)
-        elif self.position_type == Position.POSITION_SHORT and self.unrealized_pl + candle.distance_to_low >= self.take_profit:
-            self.close_position(self.take_profit)
+        if (candle.timestamp.time() >= (datetime.strptime(self.take_profit, '%H:%M:%S').time())):
+            self.close_position()
 
     def handle_break_even(self, candle):
         if self.status is not Position.POSITION_OPENED:
@@ -183,8 +175,6 @@ class Session:
         # if (position.position_type == Position.POSITION_LONG and position.vwap < position.month_vwap) or \
         #     (position.position_type == Position.POSITION_SHORT and position.vwap > position.month_vwap):
         #     return False
-        if NO_TRADE_AFTER_1430 and (position.timestamp.time() > (datetime.strptime("14:30:00", '%H:%M:%S').time())):
-            return False
         # First position of the day
         if len([pos for pos in self.positions if pos.status is Position.POSITION_CLOSED]) > 0:
             return False
