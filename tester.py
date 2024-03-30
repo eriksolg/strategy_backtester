@@ -66,14 +66,14 @@ class Position:
     POSITION_CLOSED = 0
     POSITION_DISCARDED = 2
 
-    def __init__(self, position_type, timestamp, atr, take_profit, stop_loss, strategy, vwap, month_vwap):
+    def __init__(self, position_type, timestamp, atr, take_profit, stop_loss_price, strategy, vwap, month_vwap):
         self.position_type = position_type
         self.timestamp = timestamp
         self.status = Position.POSITION_WAITING
         self.take_profit = take_profit
         self.exit_final = EXIT_FINAL
         self.atr = atr
-        self.stop_loss_price = stop_loss
+        self.stop_loss_price = stop_loss_price
         self.strategy = strategy
         self.break_even = BREAK_EVEN_ATR[self.strategy] * self.atr
         self.vwap = vwap
@@ -137,8 +137,12 @@ class Position:
     def handle_take_profit(self, candle):
         if self.status is not Position.POSITION_OPENED:
             return
-        if (candle.timestamp.time() >= (datetime.strptime(self.take_profit, '%H:%M:%S').time())):
-            self.close_position()
+        if self.take_profit == "":
+            return
+        if self.unrealized_pl - self.stop_loss >= 6 * self.atr:
+            self.stop_loss = self.unrealized_pl - 6 * self.atr
+        # if (candle.timestamp.time() >= (datetime.strptime(self.take_profit, '%H:%M:%S').time())):
+        #     self.close_position()
 
     def handle_break_even(self, candle):
         if self.status is not Position.POSITION_OPENED:
@@ -319,7 +323,7 @@ def main():
                 )
             bt.add_session(
                 Session(
-                    datetime.strptime(candle.date, "%Y-%m-%d").date(),
+                    datetime.strptime(date, "%Y-%m-%d").date(),
                     candle_list
                 )
             )
@@ -330,12 +334,13 @@ def main():
         if session:
             for _, position in positions.iterrows():
                 position_type = Position.POSITION_LONG if position.type == "L" else Position.POSITION_SHORT
+                print(position)
                 session.add_position(
                     Position(
                         position_type,
                         datetime.strptime(f"{position.date} {position.time}", "%Y-%m-%d %H:%M:%S"),
                         position.atr,
-                        position.tp if "tp" in position else "NA",
+                        position.tp if isinstance(position.tp, str) else "",
                         position.sl,
                         position.strategy,
                         position.vwap,
