@@ -18,10 +18,24 @@ MAX_PORTFOLIO_LOSS_PER_TRADE = 0.06
 EXIT_FINAL = "16:00:00"
 BREAK_EVEN_ATR = {
     "pivot": 7,
-    "rsi": 1,
+    "rsi": 3,
     "ret": 2,
     "retw": 1,
     "brk": 1
+}
+TAKE_PROFIT_ATR = {
+    "pivot": 16,
+    "rsi": 4,
+    "ret": 12,
+    "retw": 12,
+    "brk": 6
+}
+LAST_ENTER = {
+    "pivot": "15:54:00",
+    "rsi": "13:30:00",
+    "ret": "15:00:00",
+    "retw": "15:00:00",
+    "brk": "15:00:00"
 }
 
 
@@ -87,7 +101,7 @@ class Position:
         self.position_size = None
         self.last_timestamp = None
 
-    def open_position(self, entry_price, portfolio_size, scale_down_ratio):
+    def open_position(self, entry_price, portfolio_size):
         self.status = Position.POSITION_OPENED
         self.entry_price = entry_price
         self.unrealized_pl = 0
@@ -95,10 +109,7 @@ class Position:
             self.stop_loss = -2 * self.atr
         else:
             self.stop_loss = -1 * abs(self.stop_loss_price-entry_price)
-        position_size = self.calculate_initial_position_size(portfolio_size, scale_down_ratio)
-        # if  abs(self.stop_loss) < 1 * self.atr:
-        #     self.position_size = 0
-        #     self.close_position(status = Position.POSITION_DISCARDED)
+        position_size = self.calculate_initial_position_size(portfolio_size)
         if position_size is not None:
             self.position_size = position_size
         else:
@@ -106,7 +117,7 @@ class Position:
             self.position_size = 0
             self.close_position(status = Position.POSITION_DISCARDED)
 
-    def calculate_initial_position_size(self, portfolio_size, scale_down_ratio):
+    def calculate_initial_position_size(self, portfolio_size):
         margin_requirement = self.entry_price * MAINTENANCE_MARGIN
         max_positions = int(portfolio_size // margin_requirement)
 
@@ -118,6 +129,8 @@ class Position:
         return None
 
     def close_position(self, pl = None, status = POSITION_CLOSED):
+        if self.status is not Position.POSITION_OPENED:
+            return
         if pl is None:
             pl = self.unrealized_pl
         self.status = status
@@ -125,6 +138,8 @@ class Position:
         self.unrealized_pl = None
 
     def handle_unrealized_pl(self, candle):
+        if self.status is not Position.POSITION_OPENED:
+            return
         if self.position_type == Position.POSITION_LONG:
             self.unrealized_pl = candle.open - self.entry_price
         else:
@@ -143,10 +158,11 @@ class Position:
     def handle_take_profit(self, candle):
         if self.status is not Position.POSITION_OPENED:
             return
+        if (self.unrealized_pl >= TAKE_PROFIT_ATR[self.strategy] * self.atr):
+            self.close_position()
+            return
         if self.take_profit == "":
             return
-        # if self.unrealized_pl >= 3 * self.atr and self.strategy == "rsi":
-        #     self.close_position()
         if (candle.timestamp.time() >= (datetime.strptime(self.take_profit, '%H:%M:%S').time())):
             self.close_position()
 
@@ -181,54 +197,31 @@ class Session:
     def add_position(self, position):
         self.positions.append(position)
 
-    def position_filter(self, position, vwap_switch):
-        # if vwap_switch:
-        #     if (position.position_type == Position.POSITION_LONG and float(position.vwap) < float(position.month_vwap)) or \
-        #         (position.position_type == Position.POSITION_SHORT and float(position.vwap) > position.month_vwap):
-        #         return False
-        # if position.position_type == Position.POSITION_LONG and position.strategy != "rsi":
-        #     return False
-        # if (position.timestamp.time() >= datetime.strptime("15:00:00", '%H:%M:%S').time()):
-        #     return False
-
-
-        # return False
-    
-
-        #     return False
+    def position_filter(self, position):
         # First position of the day
         if len([pos for pos in self.positions if pos.status is Position.POSITION_CLOSED]) > 0:
             return False
-        if position.strategy == "rsi":
-            return False
-        if position.strategy == "rsi" and (position.timestamp.time() >= datetime.strptime("15:00:00", '%H:%M:%S').time()):
-            return False
-        # for posi in [pos for pos in self.positions if pos.status is Position.POSITION_CLOSED and pos.last_timestamp < position.timestamp]:
-        #     print(posi)
-        #     print(posi.realized_pl)
-        # if len([pos for pos in self.positions if pos.status is Position.POSITION_CLOSED and pos.last_timestamp > position.timestamp]) > 0:
-        #     return False
         
-        # if self.realized_pl > 0:
-        #     return False
+        if position.timestamp.time() >= datetime.strptime(LAST_ENTER[position.strategy], '%H:%M:%S').time():
+            return False
 
         return True
 
-    def run_backtest(self, portfolio_size, scale_down_ratio, vwap_switch):
+    def run_backtest(self, portfolio_size):
         for position in self.positions:
-            if not self.position_filter(position, vwap_switch):
+            if not self.position_filter(position):
                 continue
 
-            self.__run_backtest_for_position(position, portfolio_size, scale_down_ratio)
+            self.__run_backtest_for_position(position, portfolio_size)
             self.realized_pl += position.realized_pl if position.status == Position.POSITION_CLOSED else 0
             if position.status == Position.POSITION_WAITING:
                 print("Position did not execute: ", position)
 
-    def __run_backtest_for_position(self, position, portfolio_size, scale_down_ratio):
+    def __run_backtest_for_position(self, position, portfolio_size):
         for candle in self.candles:
             if position.status == Position.POSITION_WAITING:
                 if position.timestamp >= candle.timestamp and position.timestamp < candle.timestamp + timedelta(minutes=1):
-                    position.open_position(candle.open, portfolio_size, scale_down_ratio)
+                    position.open_position(candle.open, portfolio_size)
 
             if position.status == Position.POSITION_OPENED:
                 position.last_timestamp = candle.timestamp
@@ -255,8 +248,6 @@ class Backtest:
         self.yearly_pl = {}
         self.monthly_return = {}
         self.yearly_return = {}
-        self.scale_down_ratio = 1
-        self.vwap_switch = False
         self.win_ratios = {}
         
         if os.path.exists(CACHE_FILE):
@@ -284,21 +275,13 @@ class Backtest:
         for session in self.sessions:
             if len(session.positions) == 0:
                 continue
-            session.run_backtest(self.portfolio_size, self.scale_down_ratio, self.vwap_switch)
+            session.run_backtest(self.portfolio_size)
             self.portfolio_size += session.realized_pl
             
 
             month_year = session.date.strftime('%Y-%m')
             year = session.date.strftime('%Y')
             if month_year not in self.monthly_pl:
-                monthly_values = list(self.monthly_pl.values())
-                if len(monthly_values) >= 2:
-                    if monthly_values[-1] < 0 and monthly_values[-2] < 0:
-                        self.scale_down_ratio = self.scale_down_ratio * 0.5
-                        self.vwap_switch = True
-                    elif monthly_values[-1] > 0:
-                        self.scale_down_ratio = 1
-                        self.vwap_switch = False
                 self.monthly_pl[month_year] = 0
             
             
@@ -307,7 +290,7 @@ class Backtest:
             if month_year not in self.monthly_return:
                 self.monthly_return[month_year] = 0
                 initial_portfolio_for_month = self.portfolio_size           
-            self.monthly_return[month_year] = round(self.monthly_pl[month_year] / initial_portfolio_for_month, 2)
+            self.monthly_return[month_year] = round(self.monthly_pl[month_year] / initial_portfolio_for_month, 4)
 
             if year not in self.yearly_pl:
                 self.yearly_pl[year] = 0
@@ -316,7 +299,7 @@ class Backtest:
             if year not in self.yearly_return:
                 self.yearly_return[year] = 0
                 initial_portfolio_for_year = self.portfolio_size
-            self.yearly_return[year] = round(self.yearly_pl[year] / initial_portfolio_for_year, 2)
+            self.yearly_return[year] = round(self.yearly_pl[year] / initial_portfolio_for_year, 4)
 
     def __calculate_session_pl(self):
         session_PL = {session.date.strftime('%Y-%m-%d'): session.realized_pl for session in self.sessions if len(session.positions) > 0}
@@ -347,17 +330,31 @@ class Backtest:
         
         return abs(average_loss / average_win) if average_win else 0
 
+    def __calculate_average_monthly_return_per_year(self):
+        yearly_monthly_returns = {}
+        for month, return_value in self.monthly_return.items():
+            year = month.split('-')[0]
+            if year not in yearly_monthly_returns:
+                yearly_monthly_returns[year] = []
+            yearly_monthly_returns[year].append(return_value)
+
+        yearly_average_returns = {}
+        for year, monthly_returns in yearly_monthly_returns.items():
+            yearly_average_returns[year] = round(sum(monthly_returns) / len(monthly_returns), 4)
+
+        return yearly_average_returns
 
     def print_results(self):
         print("Yearly PL: ", json.dumps(self.yearly_pl))
         print("Monthly PL: ", json.dumps(self.monthly_pl))
-        print("Session PL: ", json.dumps(self.__calculate_session_pl()))
+        #print("Session PL: ", json.dumps(self.__calculate_session_pl()))
         print("Monthly return: ", self.monthly_return)
         print("Yearly return: ", self.yearly_return)
         print("Initial Portfolio: ", ENTRY_PORTFOLIO)
         print("Final Portfolio: ", self.portfolio_size)
         print("Win ratio: ", self.__calculate_win_ratio())
         print("Average monthly return: ", self.__calculate_average_return())
+        print("Average monthly return per year: ", self.__calculate_average_monthly_return_per_year())
         print("Average no sessions per month: ", self.__calculate_average_no_sessions_per_month())
         print("Average profit ratio: ", self.__calculate_average_profit_ratio())
 
