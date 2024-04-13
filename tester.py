@@ -5,6 +5,7 @@ import pickle
 from datetime import datetime, timedelta
 import pandas as pd
 import random
+from enum import Enum
 
 #Constants
 HISTORY_FILE = "MES_1min_continuous_adjusted.txt"
@@ -38,12 +39,22 @@ LAST_ENTER = {
     "brk": "15:00:00"
 }
 
+class PositionType(Enum):
+    LONG = 0
+    SHORT = 1
+
+class PositionStatus(Enum):
+    OPEN = 0
+    CLOSED = 1
+    WAITING = 2
+    DISCARDED = 3
+
+class CandleDirection(Enum):
+    BULL = 0
+    BEAR = 1
+    NEUTRAL = 2
 
 class Candle:
-    DIRECTION_BULL = 1
-    DIRECTION_BEAR = -1
-    DIRECTION_NEUTRAL = 0
-
     def __init__(self, timestamp, open_price, close_price, low_price, high_price, volume):
         self.timestamp = timestamp
         self.open = open_price
@@ -58,10 +69,10 @@ class Candle:
 
     def __calculate_direction(self):
         if self.close > self.open:
-            return self.DIRECTION_BULL
+            return CandleDirection.BULL
         if self.close < self.open:
-            return self.DIRECTION_BEAR
-        return self.DIRECTION_NEUTRAL
+            return CandleDirection.BEAR
+        return CandleDirection.NEUTRAL
 
     def __calculate_delta(self):
         return abs(self.low_price - self.high_price)
@@ -74,17 +85,13 @@ class Candle:
 
 
 class Position:
-    POSITION_LONG = 1
-    POSITION_SHORT = 0
-    POSITION_OPENED = 1
-    POSITION_WAITING = -1
-    POSITION_CLOSED = 0
-    POSITION_DISCARDED = 2
+
+
 
     def __init__(self, position_type, timestamp, atr, take_profit, stop_loss_price, strategy, vwap, month_vwap):
         self.position_type = position_type
         self.timestamp = self.last_timestamp = timestamp
-        self.status = Position.POSITION_WAITING
+        self.status = PositionStatus.WAITING
         self.take_profit = take_profit
         self.exit_final = EXIT_FINAL
         self.atr = atr
@@ -102,7 +109,7 @@ class Position:
         self.last_timestamp = None
 
     def open_position(self, entry_price, portfolio_size):
-        self.status = Position.POSITION_OPENED
+        self.status = PositionStatus.OPEN
         self.entry_price = entry_price
         self.unrealized_pl = 0
         if math.isnan(self.stop_loss_price):
@@ -115,7 +122,7 @@ class Position:
         else:
             print(f"Cannot open position for ${self}. Not enough margin to cover stop loss.")
             self.position_size = 0
-            self.close_position(status = Position.POSITION_DISCARDED)
+            self.close_position(status = PositionStatus.DISCARDED)
 
     def calculate_initial_position_size(self, portfolio_size):
         margin_requirement = self.entry_price * MAINTENANCE_MARGIN
@@ -128,8 +135,8 @@ class Position:
                 return size if size > 0 else None
         return None
 
-    def close_position(self, pl = None, status = POSITION_CLOSED):
-        if self.status is not Position.POSITION_OPENED:
+    def close_position(self, pl = None, status = PositionStatus.CLOSED):
+        if self.isClosed():
             return
         if pl is None:
             pl = self.unrealized_pl
@@ -138,9 +145,9 @@ class Position:
         self.unrealized_pl = None
 
     def handle_unrealized_pl(self, candle):
-        if self.status is not Position.POSITION_OPENED:
+        if self.isClosed():
             return
-        if self.position_type == Position.POSITION_LONG:
+        if self.position_type == PositionType.LONG:
             self.unrealized_pl = candle.open - self.entry_price
         else:
             self.unrealized_pl = self.entry_price - candle.open
@@ -149,14 +156,14 @@ class Position:
         return (valueInPoints / TICK_SIZE) * VALUE_OF_TICK * position_size
 
     def handle_stop_loss(self, candle):
-        if self.status is not Position.POSITION_OPENED:
+        if self.isClosed():
             return
-        if (self.position_type == Position.POSITION_LONG and self.unrealized_pl - candle.distance_to_low <= self.stop_loss) or \
-            (self.position_type == Position.POSITION_SHORT and self.unrealized_pl - candle.distance_to_high <= self.stop_loss):
+        if (self.position_type == PositionType.LONG and self.unrealized_pl - candle.distance_to_low <= self.stop_loss) or \
+            (self.position_type == PositionType.SHORT and self.unrealized_pl - candle.distance_to_high <= self.stop_loss):
             self.close_position(self.stop_loss)
 
     def handle_take_profit(self, candle):
-        if self.status is not Position.POSITION_OPENED:
+        if self.isClosed():
             return
         if (self.unrealized_pl >= TAKE_PROFIT_ATR[self.strategy] * self.atr):
             self.close_position()
@@ -167,17 +174,29 @@ class Position:
             self.close_position()
 
     def handle_break_even(self, candle):
-        if self.status is not Position.POSITION_OPENED:
+        if self.isClosed():
             return
-        if ((self.position_type == Position.POSITION_LONG and self.unrealized_pl + candle.distance_to_high >= self.break_even) or
-            (self.position_type == Position.POSITION_SHORT and self.unrealized_pl + candle.distance_to_low >= self.break_even)) and self.stop_loss<0:
+        if ((self.position_type == PositionType.LONG and self.unrealized_pl + candle.distance_to_high >= self.break_even) or
+            (self.position_type == PositionType.SHORT and self.unrealized_pl + candle.distance_to_low >= self.break_even)) and self.stop_loss<0:
             self.stop_loss = 0
 
     def handle_end_of_day(self, candle):
-        if self.status is not Position.POSITION_OPENED:
+        if self.isClosed():
             return
         if (candle.timestamp.time() >= (datetime.strptime(self.exit_final, '%H:%M:%S').time())):
             self.close_position()
+    
+    def isOpen(self):
+        return self.status is PositionStatus.OPEN
+
+    def isClosed(self):
+        return self.status is PositionStatus.CLOSED
+    
+    def isWaiting(self):
+        return self.status is PositionStatus.WAITING
+
+    def isDiscarded(self):
+        return self.status is PositionStatus.DISCARDED
 
     def __str__(self):
         return str(f"Position({self.timestamp})")
@@ -199,7 +218,7 @@ class Session:
 
     def position_filter(self, position):
         # First position of the day
-        if len([pos for pos in self.positions if pos.status is Position.POSITION_CLOSED]) > 0:
+        if len([pos for pos in self.positions if pos.isClosed()]) > 0:
             return False
         
         if position.timestamp.time() >= datetime.strptime(LAST_ENTER[position.strategy], '%H:%M:%S').time():
@@ -213,17 +232,17 @@ class Session:
                 continue
 
             self.__run_backtest_for_position(position, portfolio_size)
-            self.realized_pl += position.realized_pl if position.status == Position.POSITION_CLOSED else 0
-            if position.status == Position.POSITION_WAITING:
+            self.realized_pl += position.realized_pl if position.isClosed() else 0
+            if position.isWaiting():
                 print("Position did not execute: ", position)
 
     def __run_backtest_for_position(self, position, portfolio_size):
         for candle in self.candles:
-            if position.status == Position.POSITION_WAITING:
+            if position.isWaiting():
                 if position.timestamp >= candle.timestamp and position.timestamp < candle.timestamp + timedelta(minutes=1):
                     position.open_position(candle.open, portfolio_size)
 
-            if position.status == Position.POSITION_OPENED:
+            if position.isOpen():
                 position.last_timestamp = candle.timestamp
                 position.handle_unrealized_pl(candle)
                 position.handle_stop_loss(candle)
@@ -394,7 +413,7 @@ def main():
         session = bt.find_session(datetime.strptime(date, "%Y-%m-%d").date())
         if session:
             for _, position in positions.iterrows():
-                position_type = Position.POSITION_LONG if position.type == "L" else Position.POSITION_SHORT
+                position_type = PositionType.LONG if position.type == "L" else PositionType.SHORT
                 session.add_position(
                     Position(
                         position_type,
