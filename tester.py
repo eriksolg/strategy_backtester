@@ -17,26 +17,32 @@ ENTRY_PORTFOLIO = 8000
 MAINTENANCE_MARGIN = 0.25
 MAX_PORTFOLIO_LOSS_PER_TRADE = 0.06
 EXIT_FINAL = "16:00:00"
-BREAK_EVEN_ATR = {
-    "pivot": 7,
-    "rsi": 3,
-    "ret": 2,
-    "retw": 1,
-    "brk": 1
-}
-TAKE_PROFIT_ATR = {
-    "pivot": 16,
-    "rsi": 4,
-    "ret": 12,
-    "retw": 12,
-    "brk": 6
-}
-LAST_ENTER = {
-    "pivot": "15:54:00",
-    "rsi": "13:30:00",
-    "ret": "15:00:00",
-    "retw": "15:00:00",
-    "brk": "15:00:00"
+STRATEGY_SETTINGS = {
+    "pivot": {
+        "break_even_atr": 7,
+        "take_profit_atr": 16,
+        "last_enter": "15:54:00"
+    },
+    "rsi": {
+        "break_even_atr": 3,
+        "take_profit_atr": 4,
+        "last_enter": "13:30:00"
+    },
+    "ret": {
+        "break_even_atr": 2,
+        "take_profit_atr": 12,
+        "last_enter": "15:00:00"
+    },
+    "retw": {
+        "break_even_atr": 1,
+        "take_profit_atr": 12,
+        "last_enter": "15:00:00"
+    },
+    "brk": {
+        "break_even_atr": 1,
+        "take_profit_atr": 6,
+        "last_enter": "15:00:00"
+    }
 }
 
 class PositionType(Enum):
@@ -85,9 +91,6 @@ class Candle:
 
 
 class Position:
-
-
-
     def __init__(self, position_type, timestamp, atr, take_profit, stop_loss_price, strategy, vwap, month_vwap):
         self.position_type = position_type
         self.timestamp = self.last_timestamp = timestamp
@@ -97,7 +100,7 @@ class Position:
         self.atr = atr
         self.stop_loss_price = stop_loss_price
         self.strategy = strategy
-        self.break_even = BREAK_EVEN_ATR[self.strategy] * self.atr
+        self.break_even = STRATEGY_SETTINGS[self.strategy]["break_even_atr"] * self.atr
         self.vwap = vwap
         self.month_vwap = month_vwap
 
@@ -165,7 +168,7 @@ class Position:
     def handle_take_profit(self, candle):
         if self.isClosed():
             return
-        if (self.unrealized_pl >= TAKE_PROFIT_ATR[self.strategy] * self.atr):
+        if (self.unrealized_pl >= STRATEGY_SETTINGS[self.strategy]["take_profit_atr"] * self.atr):
             self.close_position()
             return
         if self.take_profit == "":
@@ -221,7 +224,7 @@ class Session:
         if len([pos for pos in self.positions if pos.isClosed()]) > 0:
             return False
         
-        if position.timestamp.time() >= datetime.strptime(LAST_ENTER[position.strategy], '%H:%M:%S').time():
+        if position.timestamp.time() >= datetime.strptime(STRATEGY_SETTINGS[position.strategy]["last_enter"], '%H:%M:%S').time():
             return False
 
         return True
