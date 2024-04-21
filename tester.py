@@ -28,6 +28,11 @@ STRATEGY_SETTINGS = {
         "take_profit_atr": 4,
         "last_enter": "13:30:00"
     },
+    "rsic": { # 21.05.19
+        "break_even_atr": 3,
+        "take_profit_atr": 4,
+        "last_enter": "13:30:00"
+    },
     "ret": {
         "break_even_atr": 2,
         "take_profit_atr": 12,
@@ -91,7 +96,7 @@ class Candle:
 
 
 class Position:
-    def __init__(self, position_type, timestamp, atr, take_profit, stop_loss_price, strategy, vwap, month_vwap):
+    def __init__(self, position_type, timestamp, atr, take_profit, stop_loss_price, strategy):
         self.position_type = position_type
         self.timestamp = self.last_timestamp = timestamp
         self.status = PositionStatus.WAITING
@@ -101,8 +106,6 @@ class Position:
         self.stop_loss_price = stop_loss_price
         self.strategy = strategy
         self.break_even = STRATEGY_SETTINGS[self.strategy]["break_even_atr"] * self.atr
-        self.vwap = vwap
-        self.month_vwap = month_vwap
 
         self.entry_price = None
         self.realized_pl = None
@@ -118,7 +121,11 @@ class Position:
         if math.isnan(self.stop_loss_price):
             self.stop_loss = -2 * self.atr
         else:
-            self.stop_loss = -1 * abs(self.stop_loss_price-entry_price)
+            if self.stop_loss_price > 1000:
+                self.stop_loss = -1 * abs(self.stop_loss_price-entry_price)
+            else:
+                self.stop_loss = self.stop_loss_price
+
         position_size = self.calculate_initial_position_size(portfolio_size)
         if position_size is not None:
             self.position_size = position_size
@@ -424,9 +431,7 @@ def main():
                         position.atr,
                         position.tp if isinstance(position.tp, str) else "",
                         position.sl,
-                        position.strategy,
-                        position.vwap,
-                        position.mvwap
+                        position.strategy
                     )
                 )
         else:
