@@ -26,19 +26,44 @@ STRATEGY_SETTINGS = {
     "rsi": {
         "break_even_atr": 3,
         "take_profit_atr": 4,
-        "last_enter": "13:30:00"
+        "last_enter": "15:00:00"
     },
-    "rsic": { # 21.05.19
+    "rsic": {
         "break_even_atr": 3,
         "take_profit_atr": 4,
-        "last_enter": "13:30:00"
+        "last_enter": "15:00:00"
+    },
+    "rsis": {
+        "break_even_atr": 3,
+        "take_profit_atr": 4,
+        "last_enter": "15:00:00"
     },
     "ret": {
         "break_even_atr": 2,
         "take_profit_atr": 12,
         "last_enter": "15:00:00"
     },
+    "rets": {
+        "break_even_atr": 2,
+        "take_profit_atr": 12,
+        "last_enter": "15:00:00"
+    },
+    "reth": {
+        "break_even_atr": 2,
+        "take_profit_atr": 12,
+        "last_enter": "15:00:00"
+    },
     "retw": {
+        "break_even_atr": 1,
+        "take_profit_atr": 12,
+        "last_enter": "15:00:00"
+    },
+    "retws": {
+        "break_even_atr": 1,
+        "take_profit_atr": 12,
+        "last_enter": "15:00:00"
+    },
+    "retwh": {
         "break_even_atr": 1,
         "take_profit_atr": 12,
         "last_enter": "15:00:00"
@@ -228,9 +253,12 @@ class Session:
 
     def position_filter(self, position):
         # First position of the day
-        if len([pos for pos in self.positions if pos.isClosed()]) > 0:
-            return False
+        # if len([pos for pos in self.positions if pos.isClosed()]) > 0:
+        #     return False
         
+        if len([pos for pos in self.positions if (pos.isClosed() or pos.isDiscarded()) and pos.last_timestamp >= position.timestamp]) > 0:
+            return False
+
         if position.timestamp.time() >= datetime.strptime(STRATEGY_SETTINGS[position.strategy]["last_enter"], '%H:%M:%S').time():
             return False
 
@@ -376,7 +404,7 @@ class Backtest:
     def print_results(self):
         print("Yearly PL: ", json.dumps(self.yearly_pl))
         print("Monthly PL: ", json.dumps(self.monthly_pl))
-        #print("Session PL: ", json.dumps(self.__calculate_session_pl()))
+        print("Session PL: ", json.dumps(self.__calculate_session_pl()))
         print("Monthly return: ", self.monthly_return)
         print("Yearly return: ", self.yearly_return)
         print("Initial Portfolio: ", ENTRY_PORTFOLIO)
