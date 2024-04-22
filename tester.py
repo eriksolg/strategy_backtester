@@ -252,11 +252,7 @@ class Session:
         self.positions.append(position)
 
     def position_filter(self, position):
-        # First position of the day
-        # if len([pos for pos in self.positions if pos.isClosed()]) > 0:
-        #     return False
-        
-        if len([pos for pos in self.positions if (pos.isClosed() or pos.isDiscarded()) and pos.last_timestamp >= position.timestamp]) > 0:
+        if len([pos for pos in self.positions if pos is not position and pos.isOpen()]) > 0:
             return False
 
         if position.timestamp.time() >= datetime.strptime(STRATEGY_SETTINGS[position.strategy]["last_enter"], '%H:%M:%S').time():
@@ -265,28 +261,22 @@ class Session:
         return True
 
     def run_backtest(self, portfolio_size):
-        for position in self.positions:
-            if not self.position_filter(position):
-                continue
-
-            self.__run_backtest_for_position(position, portfolio_size)
-            self.realized_pl += position.realized_pl if position.isClosed() else 0
-            if position.isWaiting():
-                print("Position did not execute: ", position)
-
-    def __run_backtest_for_position(self, position, portfolio_size):
         for candle in self.candles:
-            if position.isWaiting():
-                if position.timestamp >= candle.timestamp and position.timestamp < candle.timestamp + timedelta(minutes=1):
-                    position.open_position(candle.open, portfolio_size)
+            for position in self.positions:
+                if not self.position_filter(position):
+                    continue
+                if position.isWaiting():
+                    if position.timestamp >= candle.timestamp and position.timestamp < candle.timestamp + timedelta(minutes=1):
+                        position.open_position(candle.open, portfolio_size)
 
-            if position.isOpen():
-                position.last_timestamp = candle.timestamp
-                position.handle_unrealized_pl(candle)
-                position.handle_stop_loss(candle)
-                position.handle_take_profit(candle)
-                position.handle_break_even(candle)
-                position.handle_end_of_day(candle)
+                if position.isOpen():
+                    position.last_timestamp = candle.timestamp
+                    position.handle_unrealized_pl(candle)
+                    position.handle_stop_loss(candle)
+                    position.handle_take_profit(candle)
+                    position.handle_break_even(candle)
+                    position.handle_end_of_day(candle)
+                    self.realized_pl += position.realized_pl if position.isClosed() else 0
 
     def __str__(self):
         return str(f"Session: {self.date}")
