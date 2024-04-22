@@ -139,7 +139,7 @@ class Position:
         self.position_size = None
         self.last_timestamp = None
 
-    def open_position(self, entry_price, portfolio_size):
+    def open_position(self, entry_price):
         self.status = PositionStatus.OPEN
         self.entry_price = entry_price
         self.unrealized_pl = 0
@@ -151,23 +151,23 @@ class Position:
             else:
                 self.stop_loss = self.stop_loss_price
 
-        position_size = self.calculate_initial_position_size(portfolio_size)
+        position_size = self.calculate_initial_position_size()
         if position_size is not None:
             self.position_size = position_size
+            Backtest.portfolio_size = Backtest.portfolio_size - self.entry_price * self.position_size
         else:
             print(f"Cannot open position for ${self}. Not enough margin to cover stop loss.")
             self.position_size = 0
             self.close_position(status = PositionStatus.DISCARDED)
 
-    def calculate_initial_position_size(self, portfolio_size):
+    def calculate_initial_position_size(self):
         margin_requirement = self.entry_price * MAINTENANCE_MARGIN
-        max_positions = int(portfolio_size // margin_requirement)
+        max_positions = int(Backtest.portfolio_size // margin_requirement)
 
         for position_size in range(max_positions, 1, -1):
             potential_loss = self.get_value_in_usd(self.stop_loss, position_size)
-            if potential_loss >= (-1 * portfolio_size * MAX_PORTFOLIO_LOSS_PER_TRADE):
-                size = math.floor(1 * position_size)
-                return size if size > 0 else None
+            if potential_loss >= (-1 * Backtest.portfolio_size * MAX_PORTFOLIO_LOSS_PER_TRADE):
+                return position_size
         return None
 
     def close_position(self, pl = None, status = PositionStatus.CLOSED):
@@ -178,6 +178,7 @@ class Position:
         self.status = status
         self.realized_pl = self.get_value_in_usd(pl, self.position_size)
         self.unrealized_pl = None
+        Backtest.portfolio_size = Backtest.portfolio_size + self.entry_price * self.position_size
 
     def handle_unrealized_pl(self, candle):
         if self.isClosed():
@@ -260,14 +261,14 @@ class Session:
 
         return True
 
-    def run_backtest(self, portfolio_size):
+    def run_backtest(self):
         for candle in self.candles:
             for position in self.positions:
                 if not self.position_filter(position):
                     continue
                 if position.isWaiting():
                     if position.timestamp >= candle.timestamp and position.timestamp < candle.timestamp + timedelta(minutes=1):
-                        position.open_position(candle.open, portfolio_size)
+                        position.open_position(candle.open)
 
                 if position.isOpen():
                     position.last_timestamp = candle.timestamp
@@ -286,9 +287,9 @@ class Session:
 
 
 class Backtest:
+    portfolio_size = ENTRY_PORTFOLIO
     def __init__(self):
         self.sessions = []
-        self.portfolio_size = ENTRY_PORTFOLIO
         self.results = []
         self.monthly_pl = {}
         self.monthly_pl_per_strategy = {}
@@ -322,8 +323,8 @@ class Backtest:
         for session in self.sessions:
             if len(session.positions) == 0:
                 continue
-            session.run_backtest(self.portfolio_size)
-            self.portfolio_size += session.realized_pl
+            session.run_backtest()
+            Backtest.portfolio_size += session.realized_pl
             
 
             month_year = session.date.strftime('%Y-%m')
@@ -336,7 +337,7 @@ class Backtest:
 
             if month_year not in self.monthly_return:
                 self.monthly_return[month_year] = 0
-                initial_portfolio_for_month = self.portfolio_size           
+                initial_portfolio_for_month = Backtest.portfolio_size
             self.monthly_return[month_year] = round(self.monthly_pl[month_year] / initial_portfolio_for_month, 4)
 
             if year not in self.yearly_pl:
@@ -345,7 +346,7 @@ class Backtest:
 
             if year not in self.yearly_return:
                 self.yearly_return[year] = 0
-                initial_portfolio_for_year = self.portfolio_size
+                initial_portfolio_for_year = Backtest.portfolio_size
             self.yearly_return[year] = round(self.yearly_pl[year] / initial_portfolio_for_year, 4)
 
     def __calculate_session_pl(self):
@@ -398,7 +399,7 @@ class Backtest:
         print("Monthly return: ", self.monthly_return)
         print("Yearly return: ", self.yearly_return)
         print("Initial Portfolio: ", ENTRY_PORTFOLIO)
-        print("Final Portfolio: ", self.portfolio_size)
+        print("Final Portfolio: ", Backtest.portfolio_size)
         print("Win ratio: ", self.__calculate_win_ratio())
         print("Average monthly return: ", self.__calculate_average_return())
         print("Average monthly return per year: ", self.__calculate_average_monthly_return_per_year())
