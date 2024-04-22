@@ -16,7 +16,8 @@ VALUE_OF_TICK = 1.25
 ENTRY_PORTFOLIO = 8000
 MAINTENANCE_MARGIN = 0.25
 MAX_PORTFOLIO_LOSS_PER_TRADE = 0.06
-EXIT_FINAL = "16:00:00"
+ONLY_FIRST = False
+EXIT_FINAL = "16:14:00"
 STRATEGY_SETTINGS = {
     "pivot": {
         "break_even_atr": 7,
@@ -253,7 +254,9 @@ class Session:
         self.positions.append(position)
 
     def position_filter(self, position):
-        if len([pos for pos in self.positions if pos is not position and pos.isOpen()]) > 0:
+        if ONLY_FIRST and len([pos for pos in self.positions if pos.isClosed()]) > 0:
+            return False
+        elif len([pos for pos in self.positions if pos is not position and pos.isOpen()]) > 0:
             return False
 
         if position.timestamp.time() >= datetime.strptime(STRATEGY_SETTINGS[position.strategy]["last_enter"], '%H:%M:%S').time():
