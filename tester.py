@@ -18,7 +18,7 @@ MAINTENANCE_MARGIN = 0.25
 MAX_PORTFOLIO_LOSS_PER_TRADE = 0.06
 RETRY_ALLOWED = ["rsi", "ret", "retw", "reth", "rets", "retwh", "retws", "brk", "rsic", "rsis", "pivot"]
 DISABLED_STRATEGIES = []
-EXIT_FINAL = "16:14:00"
+EXIT_FINAL = "16:00:00"
 STRATEGY_SETTINGS = {
     "pivot": {
         "break_even_atr": 7,
@@ -107,7 +107,6 @@ class Position:
         self.atr = atr
         self.stop_loss_price = stop_loss_price
         self.strategy = strategy
-        print(self.timestamp)
         self.break_even = STRATEGY_SETTINGS[self.strategy]["break_even_atr"] * self.atr
 
         self.entry_price = None
@@ -377,7 +376,7 @@ class Backtest:
     def print_results(self):
         print("Yearly PL: ", json.dumps(self.yearly_pl))
         print("Monthly PL: ", json.dumps(self.monthly_pl))
-        print("Session PL: ", json.dumps(self.__calculate_session_pl()))
+        # print("Session PL: ", json.dumps(self.__calculate_session_pl()))
         print("Monthly return: ", self.monthly_return)
         print("Yearly return: ", self.yearly_return)
         print("Initial Portfolio: ", ENTRY_PORTFOLIO)
