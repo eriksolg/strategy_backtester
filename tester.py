@@ -16,7 +16,8 @@ VALUE_OF_TICK = 1.25
 ENTRY_PORTFOLIO = 8000
 MAINTENANCE_MARGIN = 0.25
 MAX_PORTFOLIO_LOSS_PER_TRADE = 0.06
-ONLY_FIRST = False
+RETRY_ALLOWED = ["rsi", "ret", "retw", "reth", "rets", "retwh", "retws", "brk", "rsic", "rsis", "pivot"]
+DISABLED_STRATEGIES = []
 EXIT_FINAL = "16:14:00"
 STRATEGY_SETTINGS = {
     "pivot": {
@@ -27,45 +28,10 @@ STRATEGY_SETTINGS = {
     "rsi": {
         "break_even_atr": 3,
         "take_profit_atr": 4,
-        "last_enter": "15:00:00"
-    },
-    "rsic": {
-        "break_even_atr": 3,
-        "take_profit_atr": 4,
-        "last_enter": "15:00:00"
-    },
-    "rsis": {
-        "break_even_atr": 3,
-        "take_profit_atr": 4,
-        "last_enter": "15:00:00"
+        "last_enter": "13:30:00"
     },
     "ret": {
         "break_even_atr": 2,
-        "take_profit_atr": 12,
-        "last_enter": "15:00:00"
-    },
-    "rets": {
-        "break_even_atr": 2,
-        "take_profit_atr": 12,
-        "last_enter": "15:00:00"
-    },
-    "reth": {
-        "break_even_atr": 2,
-        "take_profit_atr": 12,
-        "last_enter": "15:00:00"
-    },
-    "retw": {
-        "break_even_atr": 1,
-        "take_profit_atr": 12,
-        "last_enter": "15:00:00"
-    },
-    "retws": {
-        "break_even_atr": 1,
-        "take_profit_atr": 12,
-        "last_enter": "15:00:00"
-    },
-    "retwh": {
-        "break_even_atr": 1,
         "take_profit_atr": 12,
         "last_enter": "15:00:00"
     },
@@ -75,6 +41,16 @@ STRATEGY_SETTINGS = {
         "last_enter": "15:00:00"
     }
 }
+STRATEGY_SETTINGS["rsic"] = STRATEGY_SETTINGS["rsi"]
+STRATEGY_SETTINGS["rsis"] = STRATEGY_SETTINGS["rsi"]
+STRATEGY_SETTINGS["rets"] = STRATEGY_SETTINGS["ret"]
+STRATEGY_SETTINGS["reth"] = STRATEGY_SETTINGS["ret"]
+STRATEGY_SETTINGS["rets"] = STRATEGY_SETTINGS["ret"]
+STRATEGY_SETTINGS["retw"] = STRATEGY_SETTINGS["ret"]
+STRATEGY_SETTINGS["retws"] = STRATEGY_SETTINGS["ret"]
+STRATEGY_SETTINGS["retwh"] = STRATEGY_SETTINGS["ret"]
+
+
 
 class PositionType(Enum):
     LONG = 0
@@ -131,6 +107,7 @@ class Position:
         self.atr = atr
         self.stop_loss_price = stop_loss_price
         self.strategy = strategy
+        print(self.timestamp)
         self.break_even = STRATEGY_SETTINGS[self.strategy]["break_even_atr"] * self.atr
 
         self.entry_price = None
@@ -254,9 +231,11 @@ class Session:
         self.positions.append(position)
 
     def position_filter(self, position):
-        if ONLY_FIRST and len([pos for pos in self.positions if pos.isClosed()]) > 0:
+        if position.strategy in DISABLED_STRATEGIES:
             return False
-        elif len([pos for pos in self.positions if pos is not position and pos.isOpen()]) > 0:
+        if position.strategy not in RETRY_ALLOWED and len([pos for pos in self.positions if pos.isClosed()]) > 0:
+            return False
+        if len([pos for pos in self.positions if pos is not position and pos.isOpen()]) > 0:
             return False
 
         if position.timestamp.time() >= datetime.strptime(STRATEGY_SETTINGS[position.strategy]["last_enter"], '%H:%M:%S').time():
