@@ -234,8 +234,8 @@ class Session:
             return False
         if position.strategy not in RETRY_ALLOWED and len([pos for pos in self.positions if pos.isClosed()]) > 0:
             return False
-        if len([pos for pos in self.positions if pos.isClosed() and pos.strategy == position.strategy]) > 0:
-            return False
+        # if len([pos for pos in self.positions if pos.isClosed() and pos.strategy == position.strategy]) > 0:
+        #     return False
         if len([pos for pos in self.positions if pos is not position and pos.isOpen()]) > 0:
             return False
 
