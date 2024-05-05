@@ -16,7 +16,7 @@ VALUE_OF_TICK = 1.25
 ENTRY_PORTFOLIO = 8000
 MAINTENANCE_MARGIN = 0.25
 MAX_PORTFOLIO_LOSS_PER_TRADE = 0.06
-RETRY_ALLOWED = ["rsi", "ret", "retw", "reth", "rets", "retwh", "retws", "brk", "rsic", "rsis", "pivot"]
+RETRY_DISALLOWED = []
 DISABLED_STRATEGIES = []
 EXIT_FINAL = "16:00:00"
 STRATEGY_SETTINGS = {
@@ -45,6 +45,7 @@ STRATEGY_SETTINGS["rsic"] = STRATEGY_SETTINGS["rsi"]
 STRATEGY_SETTINGS["rsis"] = STRATEGY_SETTINGS["rsi"]
 STRATEGY_SETTINGS["rets"] = STRATEGY_SETTINGS["ret"]
 STRATEGY_SETTINGS["reth"] = STRATEGY_SETTINGS["ret"]
+STRATEGY_SETTINGS["rethu"] = STRATEGY_SETTINGS["ret"]
 STRATEGY_SETTINGS["retu"] = STRATEGY_SETTINGS["ret"]
 STRATEGY_SETTINGS["retw"] = STRATEGY_SETTINGS["ret"]
 STRATEGY_SETTINGS["retws"] = STRATEGY_SETTINGS["ret"]
@@ -232,7 +233,7 @@ class Session:
     def position_filter(self, position):
         if position.strategy in DISABLED_STRATEGIES:
             return False
-        if position.strategy not in RETRY_ALLOWED and len([pos for pos in self.positions if pos.isClosed()]) > 0:
+        if position.strategy in RETRY_DISALLOWED and len([pos for pos in self.positions if pos.isClosed()]) > 0:
             return False
         # if len([pos for pos in self.positions if pos.isClosed() and pos.strategy == position.strategy]) > 0:
         #     return False
