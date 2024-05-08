@@ -27,7 +27,7 @@ STRATEGY_SETTINGS = {
     },
     "rsi": {
         "break_even_atr": 3,
-        "take_profit_atr": 4,
+        "take_profit_atr": 3,
         "last_enter": "13:30:00"
     },
     "ret": {
@@ -48,6 +48,8 @@ STRATEGY_SETTINGS["reth"] = STRATEGY_SETTINGS["ret"]
 STRATEGY_SETTINGS["rethu"] = STRATEGY_SETTINGS["ret"]
 STRATEGY_SETTINGS["retu"] = STRATEGY_SETTINGS["ret"]
 STRATEGY_SETTINGS["retw"] = STRATEGY_SETTINGS["ret"]
+STRATEGY_SETTINGS["retwu"] = STRATEGY_SETTINGS["ret"]
+STRATEGY_SETTINGS["retwhu"] = STRATEGY_SETTINGS["ret"]
 STRATEGY_SETTINGS["retws"] = STRATEGY_SETTINGS["ret"]
 STRATEGY_SETTINGS["retwh"] = STRATEGY_SETTINGS["ret"]
 
