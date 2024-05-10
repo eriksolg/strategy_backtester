@@ -31,9 +31,9 @@ STRATEGY_SETTINGS = {
         "last_enter": "13:30:00"
     },
     "ret": {
-        "break_even_atr": 2,
+        "break_even_atr": 1.5,
         "take_profit_atr": 12,
-        "last_enter": "15:00:00"
+        "last_enter": "15:30:00"
     },
     "brk": {
         "break_even_atr": 1,
@@ -131,6 +131,8 @@ class Position:
             else:
                 self.stop_loss = self.stop_loss_price
 
+        self.initial_stop_loss = self.stop_loss
+
         position_size = self.calculate_initial_position_size()
         if position_size is not None:
             self.position_size = position_size
@@ -156,6 +158,8 @@ class Position:
         if pl is None:
             pl = self.unrealized_pl
         self.status = status
+        # Slippage
+        pl = pl - 0.2
         self.realized_pl = self.get_value_in_usd(pl, self.position_size)
         self.unrealized_pl = None
         Backtest.portfolio_size = Backtest.portfolio_size + self.entry_price * self.position_size
@@ -194,7 +198,7 @@ class Position:
             return
         if ((self.position_type == PositionType.LONG and self.unrealized_pl + candle.distance_to_high >= self.break_even) or
             (self.position_type == PositionType.SHORT and self.unrealized_pl + candle.distance_to_low >= self.break_even)) and self.stop_loss<0:
-            self.stop_loss = 0
+            self.stop_loss = 0.5
 
     def handle_end_of_day(self, candle):
         if self.isClosed():
@@ -242,7 +246,7 @@ class Session:
         if len([pos for pos in self.positions if pos is not position and pos.isOpen()]) > 0:
             return False
 
-        if position.timestamp.time() >= datetime.strptime(STRATEGY_SETTINGS[position.strategy]["last_enter"], '%H:%M:%S').time():
+        if position.timestamp.time() > datetime.strptime(STRATEGY_SETTINGS[position.strategy]["last_enter"], '%H:%M:%S').time():
             return False
 
         return True
