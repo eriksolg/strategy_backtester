@@ -344,9 +344,15 @@ class Backtest:
         return session_PL
     
     def __calculate_win_ratio(self):
-        no_sessions = len([session for session in self.sessions if len(session.positions) != 0])
-        win_sessions = len([session for session in self.sessions if session.realized_pl > 0 and len(session.positions) != 0])
-        return win_sessions/no_sessions
+        losses = []
+        wins = []
+        for session in self.sessions:
+            for position in [pos for pos in session.positions if pos.realized_pl is not None]:
+                if position.realized_pl > 0:
+                    wins.append(position.realized_pl)
+                elif position.realized_pl < 0:
+                    losses.append(position.realized_pl)
+        return len(wins)/len(losses + wins)
     
     def __calculate_average_return(self):
         return sum(monthlyReturn for month, monthlyReturn in self.monthly_return.items()) / len(self.monthly_return)
