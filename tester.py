@@ -16,12 +16,13 @@ VALUE_OF_TICK = 1.25
 ENTRY_PORTFOLIO = 8000
 MAINTENANCE_MARGIN = 0.25
 MAX_PORTFOLIO_LOSS_PER_TRADE = 0.06
+THREE_HOUR_BREAKEVEN = True
 RETRY_DISALLOWED = []
 DISABLED_STRATEGIES = []
 EXIT_FINAL = "16:00:00"
 STRATEGY_SETTINGS = {
     "pivot": {
-        "break_even_atr": 7,
+        "break_even_atr": 8,
         "take_profit_atr": 16,
         "last_enter": "15:54:00"
     },
@@ -36,8 +37,8 @@ STRATEGY_SETTINGS = {
         "last_enter": "15:30:00"
     },
     "brk": {
-        "break_even_atr": 1,
-        "take_profit_atr": 6,
+        "break_even_atr": 2,
+        "take_profit_atr": 5,
         "last_enter": "15:00:00"
     }
 }
@@ -199,6 +200,8 @@ class Position:
         if ((self.position_type == PositionType.LONG and self.unrealized_pl + candle.distance_to_high >= self.break_even) or
             (self.position_type == PositionType.SHORT and self.unrealized_pl + candle.distance_to_low >= self.break_even)) and self.stop_loss<0:
             self.stop_loss = 0.5
+        if THREE_HOUR_BREAKEVEN and (self.last_timestamp - self.timestamp >= timedelta(hours=3) and self.unrealized_pl >= 0.5):
+            self.stop_loss = 0.5
 
     def handle_end_of_day(self, candle):
         if self.isClosed():
@@ -239,7 +242,7 @@ class Session:
     def position_filter(self, position):
         if position.strategy in DISABLED_STRATEGIES:
             return False
-        if position.strategy in RETRY_DISALLOWED and len([pos for pos in self.positions if pos.isClosed()]) > 0:
+        if len([pos for pos in self.positions if pos.isClosed()]) > 0:
             return False
         # if len([pos for pos in self.positions if pos.isClosed() and pos.strategy == position.strategy]) > 0:
         #     return False
@@ -388,6 +391,21 @@ class Backtest:
 
         return yearly_average_returns
 
+    def __calculate_biggest_drawdown(self):
+        biggest_drawdown = 0
+        current_drawdown = 0
+        biggest_drawdown_pos = None
+        for session in self.sessions:
+            for position in [pos for pos in session.positions if pos.realized_pl is not None]:
+                if position.realized_pl < 0:
+                    current_drawdown += 1
+                    if current_drawdown > biggest_drawdown:
+                        biggest_drawdown = current_drawdown
+                        biggest_drawdown_pos = position
+                else:
+                    current_drawdown = 0
+        return [biggest_drawdown, biggest_drawdown_pos]
+
     def print_results(self):
         print("Yearly PL: ", json.dumps(self.yearly_pl))
         print("Monthly PL: ", json.dumps(self.monthly_pl))
@@ -401,6 +419,7 @@ class Backtest:
         print("Average monthly return per year: ", self.__calculate_average_monthly_return_per_year())
         print("Average no sessions per month: ", self.__calculate_average_no_sessions_per_month())
         print("Average profit ratio: ", self.__calculate_average_profit_ratio())
+        print("Biggest drawdown: ", self.__calculate_biggest_drawdown())
 
 
 def main():
