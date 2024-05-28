@@ -27,8 +27,8 @@ STRATEGY_SETTINGS = {
         "last_enter": "15:54:00"
     },
     "rsi": {
-        "break_even_atr": 3,
-        "take_profit_atr": 3,
+        "break_even_atr": 11,
+        "take_profit_atr": 8.5,
         "last_enter": "13:30:00"
     },
     "ret": {
@@ -39,7 +39,7 @@ STRATEGY_SETTINGS = {
     "brk": {
         "break_even_atr": 2,
         "take_profit_atr": 5,
-        "last_enter": "15:00:00"
+        "last_enter": "14:30:00"
     }
 }
 STRATEGY_SETTINGS["rsic"] = STRATEGY_SETTINGS["rsi"]
@@ -119,8 +119,10 @@ class Position:
         self.stop_loss = None
         self.position_size = None
         self.last_timestamp = None
+        self.portfolio_size_on_open = None
 
     def open_position(self, entry_price):
+        self.portfolio_size_on_open = Backtest.portfolio_size
         self.status = PositionStatus.OPEN
         self.entry_price = entry_price
         self.unrealized_pl = 0
@@ -142,6 +144,8 @@ class Position:
             print(f"Cannot open position for ${self}. Not enough margin to cover stop loss.")
             self.position_size = 0
             self.close_position(status = PositionStatus.DISCARDED)
+        if abs(self.stop_loss) < self.atr:
+            self.close_position(status = PositionStatus.DISCARDED)
 
     def calculate_initial_position_size(self):
         margin_requirement = self.entry_price * MAINTENANCE_MARGIN
@@ -160,7 +164,7 @@ class Position:
             pl = self.unrealized_pl
         self.status = status
         # Slippage
-        pl = pl - 0.2
+        # pl = pl - 0.2
         self.realized_pl = self.get_value_in_usd(pl, self.position_size)
         self.unrealized_pl = None
         Backtest.portfolio_size = Backtest.portfolio_size + self.entry_price * self.position_size
@@ -200,8 +204,9 @@ class Position:
         if ((self.position_type == PositionType.LONG and self.unrealized_pl + candle.distance_to_high >= self.break_even) or
             (self.position_type == PositionType.SHORT and self.unrealized_pl + candle.distance_to_low >= self.break_even)) and self.stop_loss<0:
             self.stop_loss = 0.5
-        if THREE_HOUR_BREAKEVEN and (self.last_timestamp - self.timestamp >= timedelta(hours=3) and self.unrealized_pl >= 0.5):
-            self.stop_loss = 0.5
+        atr_var = 2 * self.atr
+        if THREE_HOUR_BREAKEVEN and (self.last_timestamp - self.timestamp >= timedelta(hours=3) and self.unrealized_pl >= atr_var):
+            self.stop_loss = atr_var
 
     def handle_end_of_day(self, candle):
         if self.isClosed():
@@ -290,6 +295,7 @@ class Backtest:
         self.monthly_return = {}
         self.yearly_return = {}
         self.win_ratios = {}
+        self.risks_per_session = {}
         
         if os.path.exists(CACHE_FILE):
             with open(CACHE_FILE, 'rb') as f:
@@ -406,6 +412,14 @@ class Backtest:
                     current_drawdown = 0
         return [biggest_drawdown, biggest_drawdown_pos]
 
+    def __calculate_average_portfolio_risk(self):
+        risks = []
+        for session in self.sessions:
+            for position in [pos for pos in session.positions if pos.realized_pl is not None]:
+                risks.append(position.get_value_in_usd(position.initial_stop_loss, position.position_size)/position.portfolio_size_on_open)
+        return round(sum(risks) / len(risks), 4)
+
+
     def print_results(self):
         print("Yearly PL: ", json.dumps(self.yearly_pl))
         print("Monthly PL: ", json.dumps(self.monthly_pl))
@@ -420,6 +434,7 @@ class Backtest:
         print("Average no sessions per month: ", self.__calculate_average_no_sessions_per_month())
         print("Average profit ratio: ", self.__calculate_average_profit_ratio())
         print("Biggest drawdown: ", self.__calculate_biggest_drawdown())
+        print("Average portfolio risk: ", self.__calculate_average_portfolio_risk())
 
 
 def main():
