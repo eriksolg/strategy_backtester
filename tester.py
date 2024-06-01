@@ -144,7 +144,7 @@ class Position:
             print(f"Cannot open position for ${self}. Not enough margin to cover stop loss.")
             self.position_size = 0
             self.close_position(status = PositionStatus.DISCARDED)
-        if abs(self.stop_loss) < self.atr:
+        if abs(self.stop_loss) < self.atr and "rsi" in self.strategy:
             self.close_position(status = PositionStatus.DISCARDED)
 
     def calculate_initial_position_size(self):
