@@ -133,7 +133,6 @@ class Position:
                 self.stop_loss = -1 * abs(self.stop_loss_price-entry_price)
             else:
                 self.stop_loss = self.stop_loss_price
-
         self.initial_stop_loss = self.stop_loss
 
         position_size = self.calculate_initial_position_size()
