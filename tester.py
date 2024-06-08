@@ -7,6 +7,8 @@ import pandas as pd
 import random
 from enum import Enum
 
+
+
 #Constants
 HISTORY_FILE = "MES_1min_continuous_adjusted.txt"
 POSITION_FILE = "positions.csv"
@@ -27,7 +29,7 @@ STRATEGY_SETTINGS = {
         "last_enter": "15:54:00"
     },
     "rsi": {
-        "break_even_atr": 11,
+        "break_even_atr": 4,
         "take_profit_atr": 8.5,
         "last_enter": "13:30:00"
     },
@@ -37,9 +39,9 @@ STRATEGY_SETTINGS = {
         "last_enter": "15:30:00"
     },
     "brk": {
-        "break_even_atr": 2,
+        "break_even_atr": 3,
         "take_profit_atr": 5,
-        "last_enter": "14:30:00"
+        "last_enter": "15:00:00"
     }
 }
 STRATEGY_SETTINGS["rsic"] = STRATEGY_SETTINGS["rsi"]
