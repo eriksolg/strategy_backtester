@@ -74,7 +74,7 @@ class CandleDirection(Enum):
     NEUTRAL = 2
 
 class Candle:
-    def __init__(self, timestamp, open_price, close_price, low_price, high_price, volume):
+    def __init__(self, timestamp, open_price, high_price, low_price, close_price, volume):
         self.timestamp = timestamp
         self.open = open_price
         self.close = close_price
@@ -131,10 +131,7 @@ class Position:
         if math.isnan(self.stop_loss_price):
             self.stop_loss = -2 * self.atr
         else:
-            if self.stop_loss_price > 1000:
-                self.stop_loss = -1 * abs(self.stop_loss_price-entry_price)
-            else:
-                self.stop_loss = self.stop_loss_price
+            self.stop_loss = self.stop_loss_price
         self.initial_stop_loss = self.stop_loss
 
         position_size = self.calculate_initial_position_size()
@@ -241,7 +238,6 @@ class Session:
         self.positions = []
         self.realized_pl = 0
         self.exceed_monthly_pl = False
-
     def add_position(self, position):
         self.positions.append(position)
 
@@ -291,9 +287,9 @@ class Backtest:
         self.sessions = []
         self.results = []
         self.monthly_pl = {}
-        self.monthly_pl_per_strategy = {}
         self.yearly_pl = {}
         self.monthly_return = {}
+        self.monthly_return_sum = {}
         self.yearly_return = {}
         self.win_ratios = {}
         self.risks_per_session = {}
@@ -328,17 +324,21 @@ class Backtest:
             
 
             month_year = session.date.strftime('%Y-%m')
+            month = session.date.strftime('%m')
             year = session.date.strftime('%Y')
             if month_year not in self.monthly_pl:
                 self.monthly_pl[month_year] = 0
-            
+            if month not in self.monthly_return_sum:
+                self.monthly_return_sum[month] = 0    
             
             self.monthly_pl[month_year] += session.realized_pl
 
             if month_year not in self.monthly_return:
                 self.monthly_return[month_year] = 0
                 initial_portfolio_for_month = Backtest.portfolio_size
-            self.monthly_return[month_year] = round(self.monthly_pl[month_year] / initial_portfolio_for_month, 4)
+            current_monthly_return = round(self.monthly_pl[month_year] / initial_portfolio_for_month, 4)
+            self.monthly_return[month_year] = current_monthly_return
+            self.monthly_return_sum[month] += current_monthly_return
 
             if year not in self.yearly_pl:
                 self.yearly_pl[year] = 0
@@ -426,6 +426,7 @@ class Backtest:
         print("Monthly PL: ", json.dumps(self.monthly_pl))
         # print("Session PL: ", json.dumps(self.__calculate_session_pl()))
         print("Monthly return: ", self.monthly_return)
+        print("Monthly return sum: ", self.monthly_return_sum)
         print("Yearly return: ", self.yearly_return)
         print("Initial Portfolio: ", ENTRY_PORTFOLIO)
         print("Final Portfolio: ", Backtest.portfolio_size)
@@ -439,7 +440,7 @@ class Backtest:
 
 
 def main():
-    candle_data = pd.read_csv(HISTORY_FILE)
+    candle_data = pd.read_csv(HISTORY_FILE, delimiter=r'\s+|\,', engine='python')
     candle_data_grouped_by_date = candle_data.groupby(candle_data.columns[0])
 
     position_data = pd.read_csv(POSITION_FILE)
@@ -453,12 +454,12 @@ def main():
             for _, candle in candles.iterrows():
                 candle_list.append(
                     Candle(
-                        datetime.strptime(f"{candle.date} {candle.time}", "%Y-%m-%d %H:%M:%S"),
-                        candle.open,
-                        candle.close,
-                        candle.low,
-                        candle.high,
-                        candle.volume
+                        datetime.strptime(f"{candle.iloc[0]} {candle.iloc[1]}", "%Y-%m-%d %H:%M:%S"),
+                        candle.iloc[2],
+                        candle.iloc[3],
+                        candle.iloc[4],
+                        candle.iloc[5],
+                        candle.iloc[6]
                     )
                 )
             bt.add_session(
