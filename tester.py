@@ -7,8 +7,6 @@ import pandas as pd
 import random
 from enum import Enum
 
-
-
 #Constants
 HISTORY_FILE = "MES_1min_continuous_adjusted.txt"
 POSITION_FILE = "positions.csv"
@@ -131,8 +129,6 @@ class Position:
         else:
             print(f"Cannot open position for ${self}. Not enough margin to cover stop loss.")
             self.position_size = 0
-            self.close_position(status = PositionStatus.DISCARDED)
-        if abs(self.stop_loss) < self.atr and "rsi" in self.strategy:
             self.close_position(status = PositionStatus.DISCARDED)
 
     def calculate_initial_position_size(self):
@@ -279,7 +275,6 @@ class Backtest:
         self.monthly_pl = {}
         self.yearly_pl = {}
         self.monthly_return = {}
-        self.monthly_return_sum = {}
         self.yearly_return = {}
         self.win_ratios = {}
         self.risks_per_session = {}
@@ -306,38 +301,32 @@ class Backtest:
 
     def run(self):
 
-        for session in self.sessions:
-            if len(session.positions) == 0:
-                continue
-            session.run_backtest()
-            Backtest.portfolio_size += session.realized_pl
-            
-
+        for index, session in enumerate(self.sessions):
             month_year = session.date.strftime('%Y-%m')
             month = session.date.strftime('%m')
             year = session.date.strftime('%Y')
             if month_year not in self.monthly_pl:
                 self.monthly_pl[month_year] = 0
-            if month not in self.monthly_return_sum:
-                self.monthly_return_sum[month] = 0    
-            
-            self.monthly_pl[month_year] += session.realized_pl
-
             if month_year not in self.monthly_return:
                 self.monthly_return[month_year] = 0
                 initial_portfolio_for_month = Backtest.portfolio_size
-            current_monthly_return = round(self.monthly_pl[month_year] / initial_portfolio_for_month, 4)
-            self.monthly_return[month_year] = current_monthly_return
-            self.monthly_return_sum[month] += current_monthly_return
-
             if year not in self.yearly_pl:
                 self.yearly_pl[year] = 0
-            self.yearly_pl[year] += session.realized_pl
-
             if year not in self.yearly_return:
                 self.yearly_return[year] = 0
                 initial_portfolio_for_year = Backtest.portfolio_size
+            session.run_backtest()
+            Backtest.portfolio_size += session.realized_pl
+            self.monthly_pl[month_year] += session.realized_pl
+            self.monthly_return[month_year] = round(self.monthly_pl[month_year] / initial_portfolio_for_month, 4)
+            self.yearly_pl[year] += session.realized_pl
             self.yearly_return[year] = round(self.yearly_pl[year] / initial_portfolio_for_year, 4)
+
+            # Remove trailing final month
+            if((index == len(self.sessions) - 1) and self.monthly_pl[month_year] == 0):
+                del self.monthly_pl[month_year]
+                del self.monthly_return[month_year]
+
 
     def __calculate_session_pl(self):
         session_PL = {session.date.strftime('%Y-%m-%d'): session.realized_pl for session in self.sessions if len(session.positions) > 0}
@@ -416,7 +405,6 @@ class Backtest:
         print("Monthly PL: ", json.dumps(self.monthly_pl))
         # print("Session PL: ", json.dumps(self.__calculate_session_pl()))
         print("Monthly return: ", self.monthly_return)
-        print("Monthly return sum: ", self.monthly_return_sum)
         print("Yearly return: ", self.yearly_return)
         print("Initial Portfolio: ", ENTRY_PORTFOLIO)
         print("Final Portfolio: ", Backtest.portfolio_size)
@@ -432,12 +420,10 @@ class Backtest:
 def main():
     candle_data = pd.read_csv(HISTORY_FILE, delimiter=r'\s+|\,', engine='python')
     candle_data_grouped_by_date = candle_data.groupby(candle_data.columns[0])
-
     position_data = pd.read_csv(POSITION_FILE)
     position_data_grouped_by_date = position_data.groupby(position_data.columns[0])
 
     bt = Backtest()
-
     if not bt.has_sessions():
         for date, candles in candle_data_grouped_by_date:
             candle_list = []
@@ -459,7 +445,6 @@ def main():
                 )
             )
         bt.save_sessions_to_cache()
-    
     for date, positions in position_data_grouped_by_date:
         session = bt.find_session(datetime.strptime(date, "%Y-%m-%d").date())
         if session:
@@ -477,7 +462,6 @@ def main():
                 )
         else:
             print(f"Session with date {date} not found.")
-
     bt.run()
     bt.print_results()
 
