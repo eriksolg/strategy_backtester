@@ -92,7 +92,7 @@ class Candle:
 
 
 class Position:
-    def __init__(self, position_type, timestamp, atr, take_profit, stop_loss_price, strategy):
+    def __init__(self, position_type, timestamp, atr, take_profit, stop_loss_price, strategy, break_even_time):
         self.position_type = position_type
         self.timestamp = self.last_timestamp = timestamp
         self.status = PositionStatus.WAITING
@@ -102,6 +102,7 @@ class Position:
         self.stop_loss_price = stop_loss_price
         self.strategy = strategy
         self.break_even = STRATEGY_SETTINGS[self.strategy]["break_even_atr"] * self.atr
+        self.break_even_time = break_even_time
 
         self.entry_price = None
         self.realized_pl = None
@@ -187,6 +188,8 @@ class Position:
             return
         if ((self.position_type == PositionType.LONG and self.unrealized_pl + candle.distance_to_high >= self.break_even) or
             (self.position_type == PositionType.SHORT and self.unrealized_pl + candle.distance_to_low >= self.break_even)) and self.stop_loss<0:
+            self.stop_loss = 0.5
+        if isinstance(self.break_even_time, str) and candle.timestamp.time() >= (datetime.strptime(self.break_even_time, '%H:%M:%S').time()):
             self.stop_loss = 0.5
         atr_var = 2 * self.atr
         if THREE_HOUR_BREAKEVEN and (self.last_timestamp - self.timestamp >= timedelta(hours=3) and self.unrealized_pl >= atr_var):
@@ -403,7 +406,7 @@ class Backtest:
     def print_results(self):
         print("Yearly PL: ", json.dumps(self.yearly_pl))
         print("Monthly PL: ", json.dumps(self.monthly_pl))
-        # print("Session PL: ", json.dumps(self.__calculate_session_pl()))
+        print("Session PL: ", json.dumps(self.__calculate_session_pl()))
         print("Monthly return: ", self.monthly_return)
         print("Yearly return: ", self.yearly_return)
         print("Initial Portfolio: ", ENTRY_PORTFOLIO)
@@ -457,7 +460,8 @@ def main():
                         position.atr,
                         position.tp if isinstance(position.tp, str) else "",
                         position.sl,
-                        position.strategy
+                        position.strategy,
+                        position.be
                     )
                 )
         else:
