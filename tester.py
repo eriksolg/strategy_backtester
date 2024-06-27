@@ -32,7 +32,7 @@ STRATEGY_SETTINGS = {
         "last_enter": "13:30:00"
     },
     "ret": {
-        "break_even_atr": 1.5,
+        "break_even_atr": 2,
         "take_profit_atr": 12,
         "last_enter": "15:30:00"
     },
@@ -42,8 +42,6 @@ STRATEGY_SETTINGS = {
         "last_enter": "15:00:00"
     }
 }
-STRATEGY_SETTINGS["retw"] = STRATEGY_SETTINGS["ret"]
-
 
 
 class PositionType(Enum):
@@ -121,8 +119,8 @@ class Position:
         else:
             self.stop_loss = self.stop_loss_price
         self.initial_stop_loss = self.stop_loss
-
         position_size = self.calculate_initial_position_size()
+
         if position_size is not None:
             self.position_size = position_size
             Backtest.portfolio_size = Backtest.portfolio_size - self.entry_price * self.position_size
@@ -227,7 +225,9 @@ class Session:
     def add_position(self, position):
         self.positions.append(position)
 
-    def position_filter(self, position):
+    def position_filter(self, position, strategy_fails):
+        if strategy_fails[position.strategy] >= 2:
+            return False
         if position.strategy in DISABLED_STRATEGIES:
             return False
         if len([pos for pos in self.positions if pos.isClosed()]) > 0:
@@ -242,10 +242,10 @@ class Session:
 
         return True
 
-    def run_backtest(self):
+    def run_backtest(self, strategy_fails):
         for candle in self.candles:
             for position in self.positions:
-                if not self.position_filter(position):
+                if not self.position_filter(position, strategy_fails):
                     continue
                 if position.isWaiting():
                     if position.timestamp >= candle.timestamp and position.timestamp < candle.timestamp + timedelta(minutes=1):
@@ -258,7 +258,11 @@ class Session:
                     position.handle_take_profit(candle)
                     position.handle_break_even(candle)
                     position.handle_end_of_day(candle)
-                    self.realized_pl += position.realized_pl if position.isClosed() else 0
+                    if position.isClosed():
+                        self.realized_pl += position.realized_pl
+                        if position.realized_pl < 0:
+                            strategy_fails[position.strategy] += 1
+
 
     def __str__(self):
         return str(f"Session: {self.date}")
@@ -278,6 +282,7 @@ class Backtest:
         self.yearly_return = {}
         self.win_ratios = {}
         self.risks_per_session = {}
+        self.strategy_fails = {}
         
         if os.path.exists(CACHE_FILE):
             with open(CACHE_FILE, 'rb') as f:
@@ -300,13 +305,13 @@ class Backtest:
         return None
 
     def run(self):
-
         for index, session in enumerate(self.sessions):
             month_year = session.date.strftime('%Y-%m')
             month = session.date.strftime('%m')
             year = session.date.strftime('%Y')
             if month_year not in self.monthly_pl:
                 self.monthly_pl[month_year] = 0
+                self.strategy_fails = {"rsi":0, "ret": 0, "brk": 0, "pivot": 0}
             if month_year not in self.monthly_return:
                 self.monthly_return[month_year] = 0
                 initial_portfolio_for_month = Backtest.portfolio_size
@@ -315,7 +320,7 @@ class Backtest:
             if year not in self.yearly_return:
                 self.yearly_return[year] = 0
                 initial_portfolio_for_year = Backtest.portfolio_size
-            session.run_backtest()
+            session.run_backtest(self.strategy_fails)
             Backtest.portfolio_size += session.realized_pl
             self.monthly_pl[month_year] += session.realized_pl
             self.monthly_return[month_year] = round(self.monthly_pl[month_year] / initial_portfolio_for_month, 4)
@@ -403,7 +408,7 @@ class Backtest:
     def print_results(self):
         print("Yearly PL: ", json.dumps(self.yearly_pl))
         print("Monthly PL: ", json.dumps(self.monthly_pl))
-        print("Session PL: ", json.dumps(self.__calculate_session_pl()))
+        # print("Session PL: ", json.dumps(self.__calculate_session_pl()))
         print("Monthly return: ", self.monthly_return)
         print("Yearly return: ", self.yearly_return)
         print("Initial Portfolio: ", ENTRY_PORTFOLIO)
@@ -457,7 +462,7 @@ def main():
                         position.atr,
                         position.tp if isinstance(position.tp, str) else "",
                         position.sl,
-                        position.strategy
+                        position.strategy if position.strategy != "retw" else "ret"
                     )
                 )
         else:
