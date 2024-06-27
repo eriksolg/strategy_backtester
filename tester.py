@@ -29,16 +29,16 @@ STRATEGY_SETTINGS = {
     "rsi": {
         "break_even_atr": 4,
         "take_profit_atr": 8.5,
-        "last_enter": "13:30:00"
+        "last_enter": "13:15:00"
     },
     "ret": {
         "break_even_atr": 2,
-        "take_profit_atr": 12,
-        "last_enter": "15:30:00"
+        "take_profit_atr": 12.5,
+        "last_enter": "15:15:00"
     },
     "brk": {
         "break_even_atr": 3,
-        "take_profit_atr": 5,
+        "take_profit_atr": 4.5,
         "last_enter": "15:00:00"
     }
 }
@@ -105,6 +105,7 @@ class Position:
         self.realized_pl = None
         self.unrealized_pl = None
         self.stop_loss = None
+        self.initial_stop_loss = None
         self.position_size = None
         self.last_timestamp = None
         self.portfolio_size_on_open = None
@@ -221,7 +222,6 @@ class Session:
         self.candles = candles
         self.positions = []
         self.realized_pl = 0
-        self.exceed_monthly_pl = False
     def add_position(self, position):
         self.positions.append(position)
 
