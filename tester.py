@@ -390,7 +390,7 @@ class Backtest:
             for position in [pos for pos in session.positions if pos.realized_pl is not None]:
                 if position.realized_pl < 0:
                     current_drawdown += 1
-                    if current_drawdown > biggest_drawdown:
+                    if current_drawdown >= biggest_drawdown:
                         biggest_drawdown = current_drawdown
                         biggest_drawdown_pos = position
                 else:
